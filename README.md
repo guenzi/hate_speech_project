@@ -29,8 +29,8 @@ Optional: verify that required versions are installed
 
 - `data/`: Store the data used in the project
 - `notebooks/`: Store the notebooks used for testing during the project
-  - `Test.ipynb/`: First test notebook
-- `src`: Contain the code for the pipeline
+  - `Test.ipynb`: First test notebook
+- `src/`: Contain the code for the pipeline
     - `preprocess.py`: Tweet cleaning and label formatting
     - `dataset.py`: PyTorch Dataset class
     - `model.py`: Definition of the BERTweet model architecture
