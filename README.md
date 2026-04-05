@@ -27,20 +27,17 @@ Optional: verify that required versions are installed
 
 ## Repository Structure
 
-- `Pipeline/`: Code for the training and analysis pipeline
-  - `test.csv`
-  - `Jupyter/`
-    - `3_finetune.ipynb`:
-    - `brightness.ipynb` :
-    - `temp_notebook.ipynb`:
-  - `Python/`
-    - `analysis.py`: Metrics computation
-    - `load_data.py`: Data loading
-    - `main.py`: Script to run the full pipeline
-    - `plotting.py`: Plot generation
+- `data/`: Store the data used in the project
+- `notebooks/`: Store the notebooks used for testing during the project
+  - `Test.ipynb/`: First test notebook
+- `src`: Contain the code for the pipeline
+    - `preprocess.py`: Tweet cleaning and label formatting
+    - `dataset.py`: PyTorch Dataset class
+    - `model.py`: Definition of the BERTweet model architecture
+    - `train.py`: Training and validation loop
     - `tools.py`: Additional helper
-  - `__pycache__`: contains the cache for the code (not important for the analysis)
 - `README.md`: README file
+- `main.py`: Script to run the whole pipeline
 - `requirements.txt`: Requirements to run the code in this repository
 
 ---
