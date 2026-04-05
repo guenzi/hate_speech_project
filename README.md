@@ -49,5 +49,5 @@ Optional: verify that required versions are installed
 ## 👤 Author
 
 ```text
-Loic Guenzi, ..., Lucas Firouzi
+Loïc Guenzi, Lucas Firouzi, Rémy Jaillat
 ```
