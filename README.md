@@ -50,7 +50,18 @@ Due to file size limitations, datasets are not included in this repository.
 Download the data from the following Google Drive link:
 https://drive.google.com/drive/folders/1KJfLX84MFirhX5qh1UByg9MwIB8_2_o-?usp=sharing
 
-Then, manually create a `data/` folder at the root of the project and place the downloaded files inside:
+Then, manually create a `data/` folder at the root of the project and place the downloaded files inside.
+
+### Datasets
+
+| Dataset | Source | Role | Label used |
+|---|---|---|---|
+| **HateXplain** | [GitHub](https://github.com/hate-alert/HateXplain) | Train / Val | `hatespeech` + racial target → 1, `normal` → 0 |
+| **Implicit Hate Corpus** | [GitHub](https://github.com/SALT-NLP/implicit-hate) | Test (implicit) | stg2 implicit posts → 1, stg1 `not_hate` → 0 |
+| **CAD** | [Zenodo](https://doi.org/10.5281/zenodo.4881008) | Bonus / cross-domain | `IdentityDirectedAbuse` → 1, `Neutral` → 0 |
+| **Gab Hate Corpus** | [OSF](https://osf.io/edua3/) | Bonus / cross-domain | `hd=1` → 1, `hd=0` → 0 |
+
+All datasets are preprocessed by `src/preprocess.py` and saved as CSVs in `data/final_datasets/`.
 
 ---
 
