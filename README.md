@@ -15,6 +15,7 @@ git clone https://github.com/guenzi/hate_speech_project.git
 cd hate_speech_project
 ```
 
+
 ### 2. Install Dependencies
 
 ```bash
@@ -42,7 +43,14 @@ Optional: verify that required versions are installed
 
 ---
 
-## Data description:
+## Data description
+
+Due to file size limitations, datasets are not included in this repository.
+
+Download the data from the following Google Drive link:
+https://drive.google.com/drive/folders/1KJfLX84MFirhX5qh1UByg9MwIB8_2_o-?usp=sharing
+
+Then, manually create a `data/` folder at the root of the project and place the downloaded files inside:
 
 ---
 
