@@ -19,10 +19,10 @@ from sklearn.metrics import classification_report, f1_score, accuracy_score
 # In[2]:
 
 
-hatexplain = pd.read_csv("../data/final_datasets/hatexplain.csv")
-implicit = pd.read_csv("../data/final_datasets/implicit_hate_test.csv")
-cad = pd.read_csv("../data/final_datasets/cad.csv")
-gab = pd.read_csv("../data/final_datasets/gab.csv")
+hatexplain = pd.read_csv("data/final_datasets/hatexplain.csv")
+implicit = pd.read_csv("data/final_datasets/implicit_hate_test.csv")
+cad = pd.read_csv("data/final_datasets/cad.csv")
+gab = pd.read_csv("data/final_datasets/gab.csv")
 
 
 # In[3]:
