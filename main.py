@@ -128,16 +128,38 @@ def make_loaders(df_tr, df_v, df_te, tokenizer, max_len, batch_size, sample_weig
     )
 
 
+# ── Focal Loss ─────────────────────────────────────────────────────────────────
+class FocalLoss(nn.Module):
+    """Focal Loss — pénalise davantage les exemples difficiles/mal classifiés."""
+    def __init__(self, gamma=2.0, reduction="none"):
+        super().__init__()
+        self.gamma     = gamma
+        self.reduction = reduction
+
+    def forward(self, logits, labels):
+        ce   = nn.functional.cross_entropy(logits, labels, reduction="none")
+        pt   = torch.exp(-ce)                        # probabilité de la bonne classe
+        loss = (1 - pt) ** self.gamma * ce           # down-weight les exemples faciles
+        if self.reduction == "mean":
+            return loss.mean()
+        return loss
+
+
 # ── Training ───────────────────────────────────────────────────────────────────
-def train_bertweet(train_loader, val_loader, device, epochs, lr, use_sample_weights=False):
+def train_bertweet(train_loader, val_loader, device, epochs, lr,
+                   use_sample_weights=False, patience=2):
     model     = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=2).to(device)
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=0.01)
     total_steps = len(train_loader) * epochs
     scheduler = get_linear_schedule_with_warmup(
         optimizer, num_warmup_steps=int(0.1 * total_steps), num_training_steps=total_steps
     )
-    ce_loss = nn.CrossEntropyLoss(reduction="none")
-    history = {"train_loss": [], "val_f1": []}
+    focal_loss = FocalLoss(gamma=2.0, reduction="none")
+    history    = {"train_loss": [], "val_f1": []}
+
+    best_val_f1    = 0.0
+    best_state     = None
+    epochs_no_improve = 0
 
     for epoch in range(epochs):
         model.train()
@@ -146,7 +168,7 @@ def train_bertweet(train_loader, val_loader, device, epochs, lr, use_sample_weig
             optimizer.zero_grad()
             logits = model(input_ids=batch["input_ids"].to(device),
                            attention_mask=batch["attention_mask"].to(device)).logits
-            loss   = ce_loss(logits, batch["label"].to(device))
+            loss   = focal_loss(logits, batch["label"].to(device))
             if use_sample_weights and "weight" in batch:
                 loss = (loss * batch["weight"].to(device)).mean()
             else:
@@ -166,12 +188,27 @@ def train_bertweet(train_loader, val_loader, device, epochs, lr, use_sample_weig
                 preds.extend(logits.argmax(-1).cpu().numpy())
                 trues.extend(batch["label"].numpy())
 
-        val_f1  = f1_score(trues, preds, average="macro")
+        val_f1   = f1_score(trues, preds, average="macro")
         avg_loss = total_loss / len(train_loader)
         history["train_loss"].append(avg_loss)
         history["val_f1"].append(val_f1)
         print(f"Epoch {epoch+1}/{epochs} | Loss: {avg_loss:.4f} | Val Macro F1: {val_f1:.4f}")
 
+        # Early stopping
+        if val_f1 > best_val_f1:
+            best_val_f1 = val_f1
+            best_state  = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+            epochs_no_improve = 0
+            print(f"  ✓ Meilleur modèle sauvegardé (val F1={best_val_f1:.4f})")
+        else:
+            epochs_no_improve += 1
+            print(f"  ✗ Pas d'amélioration ({epochs_no_improve}/{patience})")
+            if epochs_no_improve >= patience:
+                print(f"  Early stopping à l'epoch {epoch+1}")
+                break
+
+    # Restaurer le meilleur état
+    model.load_state_dict({k: v.to(device) for k, v in best_state.items()})
     return model, history
 
 
@@ -279,7 +316,8 @@ def main(args):
     # BERTweet baseline
     print("\n[4/7] Entraînement BERTweet baseline...")
     model_base, history_base = train_bertweet(
-        train_loader, val_loader, device, args.epochs, args.lr, use_sample_weights=False
+        train_loader, val_loader, device, args.epochs, args.lr,
+        use_sample_weights=False, patience=args.patience
     )
     save_checkpoint(model_base, os.path.join(args.output_dir, "checkpoints", "bertweet_baseline.pt"))
 
@@ -299,7 +337,8 @@ def main(args):
 
     print("\n[6/7] Entraînement BERTweet weighted...")
     model_weighted, history_weighted = train_bertweet(
-        train_loader_w, val_loader, device, args.epochs, args.lr, use_sample_weights=True
+        train_loader_w, val_loader, device, args.epochs, args.lr,
+        use_sample_weights=True, patience=args.patience
     )
     save_checkpoint(model_weighted, os.path.join(args.output_dir, "checkpoints", "bertweet_weighted.pt"))
 
@@ -346,7 +385,8 @@ if __name__ == "__main__":
                         help="Path to hatexplain.csv")
     parser.add_argument("--output_dir", type=str, required=True,
                         help="Directory to save results, checkpoints and plots")
-    parser.add_argument("--epochs",     type=int, default=3)
+    parser.add_argument("--epochs",     type=int, default=5)
+    parser.add_argument("--patience",   type=int, default=2)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--lr",         type=float, default=2e-5)
     parser.add_argument("--max_len",    type=int, default=128)
