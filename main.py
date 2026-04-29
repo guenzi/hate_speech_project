@@ -10,6 +10,7 @@ import json
 import os
 import warnings
 from collections import Counter
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -285,6 +286,12 @@ def save_plots(history_base, history_weighted, group_results, output_dir):
 def main(args):
     device = get_device()
     print(f"Device : {device}")
+
+    # Sous-dossier horodaté pour ne pas écraser les anciens résultats
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    args.output_dir = os.path.join(args.output_dir, run_id)
+    os.makedirs(args.output_dir, exist_ok=True)
+    print(f"Run ID : {run_id}  →  résultats dans {args.output_dir}")
 
     # Data
     print("\n[1/7] Chargement des données...")
