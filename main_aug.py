@@ -581,12 +581,12 @@ def save_plots(history_base, history_weighted, group_results, output_dir):
 
     # Per-group F1 comparison
     svm_res, base_res, weighted_res = group_results
-    all_groups = sorted(set(base_res) & set(weighted_res) & set(svm_res))
+    all_groups = GROUPS
     x, width   = np.arange(len(all_groups)), 0.25
     fig, ax    = plt.subplots(figsize=(12, 5))
-    ax.bar(x - width, [svm_res[g]["f1"]      for g in all_groups], width, label="SVM",              color="steelblue", alpha=0.85)
-    ax.bar(x,         [base_res[g]["f1"]      for g in all_groups], width, label="BERTweet Baseline", color="tomato",    alpha=0.85)
-    ax.bar(x + width, [weighted_res[g]["f1"]  for g in all_groups], width, label="BERTweet Weighted", color="seagreen",  alpha=0.85)
+    ax.bar(x - width, [svm_res.get(g, {"f1": 0.0})["f1"] for g in all_groups], width, label="SVM", color="steelblue", alpha=0.85)
+    ax.bar(x, [base_res.get(g, {"f1": 0.0})["f1"] for g in all_groups], width, label="BERTweet Baseline", color="tomato", alpha=0.85)
+    ax.bar(x + width, [weighted_res.get(g, {"f1": 0.0})["f1"] for g in all_groups], width, label="BERTweet Weighted", color="seagreen", alpha=0.85)
     ax.set_xticks(x)
     ax.set_xticklabels(all_groups, rotation=30, ha="right")
     ax.set_ylabel("F1 Score")
