@@ -56,7 +56,7 @@ def evaluate_per_group(df_eval, y_pred):
         mask_pos = df_eval["targets_parsed"].apply(lambda t: group in t) & (df_eval["label"] == 1)
         mask_neg = df_eval["label"] == 0
         mask     = mask_pos | mask_neg
-        if mask_pos.sum() < 5:
+        if mask_pos.sum() < 1:
             continue
         results[group] = {
             "f1"   : f1_score(df_eval[mask]["label"].values, y_pred[mask], pos_label=1, zero_division=0),
