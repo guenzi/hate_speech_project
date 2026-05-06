@@ -25,17 +25,26 @@ The `requirements.txt` lists the packages included in the image for reference on
 
 ## Docker Image
 
-The `Dockerfile` at the root of the repository defines the image. To rebuild and push a new version:
+The `Dockerfile` at the root of the repository defines the image. It has two modes:
+
+- **Lightweight update** (default) — builds on top of the previous image. Only the new dependencies are uploaded (~MB). Use this when bumping the version after changing `requirements.txt`.
+- **Full rebuild** — rebuilds everything from the course base image (~5GB upload). Instructions are in the commented block at the top of the Dockerfile. Use this only when changing system-level dependencies (Python version, apt packages, etc.).
+
+### Build and push a new version
 
 ```bash
 docker login registry.rcp.epfl.ch
 
-docker build -t registry.rcp.epfl.ch/ee-559-guenzi/my-toolbox:v0.3 .
+# Replace vPREV with the previous version and vNEW with the new version
+docker build \
+  --platform linux/amd64 \
+  --build-arg BASE=registry.rcp.epfl.ch/ee-559-guenzi/my-toolbox:vPREV \
+  -t registry.rcp.epfl.ch/ee-559-guenzi/my-toolbox:vNEW .
 
-docker push registry.rcp.epfl.ch/ee-559-guenzi/my-toolbox:v0.3
+docker push registry.rcp.epfl.ch/ee-559-guenzi/my-toolbox:vNEW
 ```
 
-Update the `--image` flag in your RunAI submit commands accordingly when bumping the version.
+The Dockerfile never needs to be edited when bumping versions. Only update the `--image` flag in your RunAI submit commands.
 
 ---
 
