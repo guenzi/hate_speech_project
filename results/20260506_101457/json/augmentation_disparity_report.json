@@ -1,0 +1,47 @@
+{
+  "n_train_original": 3959,
+  "n_augmented_added": 91,
+  "n_train_after": 4050,
+  "aug_factor": 2,
+  "methods": [
+    "synonym",
+    "delete",
+    "swap",
+    "punct",
+    "char",
+    "combo"
+  ],
+  "method_counts": {
+    "combo": 17,
+    "char+fallback_punct": 8,
+    "swap": 21,
+    "delete": 16,
+    "combo+fallback_punct": 1,
+    "punct": 11,
+    "char": 6,
+    "synonym": 7,
+    "synonym+fallback_punct": 2,
+    "punct+fallback_punct": 1,
+    "delete+fallback_punct": 1
+  },
+  "positive_group_counts_before": {
+    "African": 1160,
+    "Asian": 72,
+    "Jewish": 645,
+    "Arab": 61,
+    "Caucasian": 60,
+    "Hispanic": 116,
+    "Indian": 4,
+    "Islam": 414
+  },
+  "positive_group_counts_after": {
+    "African": 1160,
+    "Asian": 72,
+    "Jewish": 645,
+    "Arab": 61,
+    "Caucasian": 151,
+    "Hispanic": 116,
+    "Indian": 4,
+    "Islam": 414
+  }
+}
