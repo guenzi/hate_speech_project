@@ -37,7 +37,6 @@ src/
 
 main.py             — pipeline orchestrator
 requirements.txt    — dependencies
-old_architecture/   — old files kept for reference
 ```
 
 ---
