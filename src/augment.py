@@ -182,66 +182,43 @@ def augment_text(text, rng, methods=("synonym", "delete", "swap", "punct", "char
     return text_aug, method
 
 
-def augment_training_data(
-    df_train,
-    aug_factor=2,
-    min_group_samples=700,
-    seed=SEED,
-    methods=("synonym", "delete", "swap", "punct", "char", "combo"),
-    augment_labels="positive",
-    save_report_path=None,
-):
+def _do_augment(df_train, targets_to_augment, aug_factor, methods, seed, save_report_path):
+    """Shared augmentation logic given a set of groups to augment."""
     rng = random.Random(seed)
-    df_train = df_train.copy().reset_index(drop=True)
-
     group_counts_before = {
         g: int(((df_train["label"] == 1) & df_train["targets_parsed"].apply(lambda t: g in t)).sum())
         for g in GROUPS
     }
-    underrepresented = {g for g, c in group_counts_before.items() if c < min_group_samples}
-
-    print("\nGroupes ciblés pour augmentation :")
-    if underrepresented:
-        for g in sorted(underrepresented):
-            print(f"  {g:<12} count={group_counts_before[g]} < {min_group_samples}")
-    else:
-        print("  Aucun groupe sous le seuil.")
-
-    def should_augment(row):
-        if augment_labels == "positive" and row["label"] != 1:
-            return False
-        if augment_labels == "all":
-            return True
-        targets = [t for t in row["targets_parsed"] if t in GROUPS]
-        if not underrepresented:
-            return row["label"] == 1
-        return row["label"] == 1 and any(t in underrepresented for t in targets)
 
     rows = []
     method_counts = Counter()
 
     for _, row in df_train.iterrows():
-        if should_augment(row):
-            for k in range(aug_factor):
-                new_text, method = augment_text(row["text"], rng, methods=methods)
-                if new_text == str(row["text"]).strip():
-                    continue
-                new_row = row.copy()
-                original_id = row.get("id", f"row_{len(rows)}")
-                new_row["id"] = f"{original_id}_aug{k+1}"
-                new_row["text"] = new_text
-                new_row["augmentation_method"] = method
-                new_row["original_id"] = original_id
-                rows.append(new_row)
-                method_counts[method] += 1
+        if row["label"] != 1:
+            continue
+        group_targets = [t for t in row["targets_parsed"] if t in targets_to_augment]
+        if not group_targets:
+            continue
+        for k in range(aug_factor):
+            new_text, method = augment_text(row["text"], rng, methods=methods)
+            if new_text == str(row["text"]).strip():
+                continue
+            new_row = row.copy()
+            original_id = row.get("id", f"row_{len(rows)}")
+            new_row["id"] = f"{original_id}_aug{k+1}"
+            new_row["text"] = new_text
+            new_row["augmentation_method"] = method
+            new_row["original_id"] = original_id
+            rows.append(new_row)
+            method_counts[method] += 1
 
     df_aug = pd.DataFrame(rows)
     df_base = df_train.copy()
     df_base["augmentation_method"] = "original"
-    df_base["original_id"] = df_base["id"] if "id" in df_base.columns else np.arange(len(df_base))
+    df_base["original_id"] = df_base.get("id", pd.Series(range(len(df_base))))
 
     if len(df_aug) == 0:
-        print("Aucune ligne augmentée.")
+        print("No rows augmented.")
         return df_base
 
     out = pd.concat([df_base, df_aug], ignore_index=True)
@@ -252,17 +229,15 @@ def augment_training_data(
         for g in GROUPS
     }
 
-    print(f"\nAugmentation : +{len(df_aug)} exemples ({len(df_train)} → {len(out)})")
-    print("Méthodes :", dict(method_counts))
+    print(f"\nAugmentation: +{len(df_aug)} samples ({len(df_train)} → {len(out)})")
+    print("Methods:", dict(method_counts))
 
     if save_report_path is not None:
         report = {
             "n_train_original": int(len(df_train)),
             "n_augmented_added": int(len(df_aug)),
             "n_train_after": int(len(out)),
-            "augment_labels": augment_labels,
             "aug_factor": int(aug_factor),
-            "min_group_samples": int(min_group_samples),
             "methods": list(methods),
             "method_counts": dict(method_counts),
             "positive_group_counts_before": group_counts_before,
@@ -270,6 +245,61 @@ def augment_training_data(
         }
         with open(save_report_path, "w", encoding="utf-8") as f:
             json.dump(report, f, indent=2, ensure_ascii=False)
-        print(f"Rapport d'augmentation → {save_report_path}")
+        print(f"Augmentation report → {save_report_path}")
 
     return out
+
+
+def augment_training_data(
+    df_train,
+    aug_factor=2,
+    min_group_samples=200,
+    seed=SEED,
+    methods=("synonym", "delete", "swap", "punct", "char", "combo"),
+    save_report_path=None,
+):
+    """Augments hate samples from groups with hate_count < min_group_samples."""
+    group_counts = {
+        g: int(((df_train["label"] == 1) & df_train["targets_parsed"].apply(lambda t: g in t)).sum())
+        for g in GROUPS
+    }
+    targets_to_augment = {g for g, c in group_counts.items() if c < min_group_samples}
+
+    print("\nGroups targeted for augmentation (count-based):")
+    for g in sorted(targets_to_augment):
+        print(f"  {g:<12} hate_count={group_counts[g]} < {min_group_samples}")
+
+    return _do_augment(df_train, targets_to_augment, aug_factor, methods, seed, save_report_path)
+
+
+def augment_training_data_disparity(
+    df_train,
+    aug_factor=3,
+    disparity_threshold=1.5,
+    seed=SEED,
+    methods=("synonym", "delete", "swap", "punct", "char", "combo"),
+    save_report_path=None,
+):
+    """
+    Augments hate samples from groups where normal_count / hate_count > disparity_threshold.
+    Targets groups where the model sees many more normal than hate examples, making
+    hate detection harder for that group.
+    """
+    hate_counts = {
+        g: max(1, ((df_train["label"] == 1) & df_train["targets_parsed"].apply(lambda t: g in t)).sum())
+        for g in GROUPS
+    }
+    normal_counts = {
+        g: max(1, ((df_train["label"] == 0) & df_train["targets_parsed"].apply(lambda t: g in t)).sum())
+        for g in GROUPS
+    }
+    disparity = {g: normal_counts[g] / hate_counts[g] for g in GROUPS}
+
+    targets_to_augment = {g for g, d in disparity.items() if d > disparity_threshold}
+
+    print(f"\nGroups targeted for augmentation (disparity normal/hate > {disparity_threshold}):")
+    for g in sorted(GROUPS, key=lambda g: -disparity[g]):
+        marker = "← augmented" if g in targets_to_augment else ""
+        print(f"  {g:<12} hate={hate_counts[g]:4d}  normal={normal_counts[g]:4d}  ratio={disparity[g]:.2f}  {marker}")
+
+    return _do_augment(df_train, targets_to_augment, aug_factor, methods, seed, save_report_path)

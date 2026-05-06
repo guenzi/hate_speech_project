@@ -20,10 +20,10 @@ from transformers import AutoTokenizer
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-from augment import augment_training_data
+from augment import augment_training_data, augment_training_data_disparity
 from config import MODEL_NAME, SEED, get_device
 from dataset import load_data, make_loaders, split_data
-from evaluate import compute_sample_weights, evaluate_per_group, print_group_results
+from evaluate import compute_disparity_weights, compute_sample_weights, evaluate_per_group, print_group_results
 from model import predict, save_checkpoint, train_bertweet
 from plots import save_dataset_distribution, save_group_comparison, save_training_curves
 
@@ -114,7 +114,6 @@ def main(args):
         min_group_samples=args.aug_min_group_samples,
         seed=SEED,
         methods=selected_methods,
-        augment_labels=args.augment_labels,
         save_report_path=aug_report_path,
     )
     df_train_aug.to_csv(os.path.join(args.output_dir, "train_augmented.csv"), index=False)
@@ -135,6 +134,36 @@ def main(args):
     print(classification_report(df_test["label"], y_pred_aug, target_names=["Not Racist", "Racist"]))
     all_group_results["BERTweet Weighted + Aug"] = evaluate_per_group(df_test, y_pred_aug)
     print_group_results(all_group_results["BERTweet Weighted + Aug"], "BERTweet Weighted + Aug")
+
+    # BERTweet + Disparity (disparity-aware weights + disparity-aware augmentation)
+    print("\n[7] BERTweet + Disparity...")
+    disp_aug_report_path = os.path.join(args.output_dir, "augmentation_disparity_report.json")
+    df_train_disp = augment_training_data_disparity(
+        df_train,
+        aug_factor=args.aug_factor,
+        disparity_threshold=args.aug_disparity_threshold,
+        seed=SEED,
+        methods=selected_methods,
+        save_report_path=disp_aug_report_path,
+    )
+    df_train_disp.to_csv(os.path.join(args.output_dir, "train_disparity_augmented.csv"), index=False)
+
+    sample_weights_disp = compute_disparity_weights(df_train_disp)
+    train_loader_disp, _, _ = make_loaders(
+        df_train_disp, df_val, df_test, tokenizer, args.max_len, args.batch_size, sample_weights_disp
+    )
+    model_disp, history_disp = train_bertweet(
+        train_loader_disp, val_loader, device, args.epochs, args.lr,
+        use_sample_weights=True, patience=args.patience,
+    )
+    save_checkpoint(model_disp, os.path.join(args.output_dir, "checkpoints", "bertweet_disparity.pt"))
+    save_training_curves(history_disp, "BERTweet + Disparity", args.output_dir)
+
+    y_pred_disp = predict(model_disp, test_loader, device)
+    all_f1_global["BERTweet + Disparity"] = f1_score(df_test["label"], y_pred_disp, average="macro")
+    print(classification_report(df_test["label"], y_pred_disp, target_names=["Not Racist", "Racist"]))
+    all_group_results["BERTweet + Disparity"] = evaluate_per_group(df_test, y_pred_disp)
+    print_group_results(all_group_results["BERTweet + Disparity"], "BERTweet + Disparity")
 
     # Résultats globaux
     print("\n=== Résultats globaux ===")
@@ -169,8 +198,8 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--max_len", type=int, default=128)
     parser.add_argument("--aug_factor", type=int, default=2)
-    parser.add_argument("--aug_min_group_samples", type=int, default=700)
+    parser.add_argument("--aug_min_group_samples", type=int, default=200)
+    parser.add_argument("--aug_disparity_threshold", type=float, default=1.5)
     parser.add_argument("--aug_methods", type=str, default="synonym,delete,swap,punct,char,combo")
-    parser.add_argument("--augment_labels", type=str, default="positive", choices=["positive", "all"])
     args = parser.parse_args()
     main(args)

@@ -10,6 +10,7 @@ COLORS = {
     "BERTweet Baseline": "tomato",
     "BERTweet Weighted": "seagreen",
     "BERTweet Weighted + Aug": "darkorchid",
+    "BERTweet + Disparity": "darkorange",
 }
 
 
@@ -20,7 +21,7 @@ def save_training_curves(history, model_name, output_dir):
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
     axes[0].plot(history["train_loss"], color=color, marker="o")
-    axes[0].set_title(f"{model_name} — Train Loss")
+    axes[0].set_title(f"{model_name} — Training Loss")
     axes[0].set_xlabel("Epoch")
     axes[0].set_ylabel("Loss")
 
@@ -52,8 +53,8 @@ def save_dataset_distribution(df, output_dir):
 
     ax.set_xticks(x)
     ax.set_xticklabels(GROUPS, rotation=30, ha="right")
-    ax.set_ylabel("Nombre de tweets")
-    ax.set_title("Distribution hate vs not hate par groupe ethnique")
+    ax.set_ylabel("Number of tweets")
+    ax.set_title("Hate vs Not-Hate Distribution per Ethnic Group")
     ax.legend()
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "dataset_distribution.png"), dpi=150)
@@ -84,7 +85,7 @@ def save_group_comparison(all_results, output_dir):
     ax.set_xticks(x)
     ax.set_xticklabels(GROUPS, rotation=30, ha="right")
     ax.set_ylabel("F1 Score")
-    ax.set_title("F1 par groupe ethnique — comparaison des modèles")
+    ax.set_title("Per-Group F1 Score — Model Comparison")
     ax.legend()
     ax.set_ylim(0, 1.05)
     plt.tight_layout()
