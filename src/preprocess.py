@@ -46,10 +46,14 @@ def load_hatexplain(path: str) -> pd.DataFrame:
     return df[["id", "text", "label", "targets"]]
 
 if __name__ == "__main__":
-    os.makedirs("../data/final_datasets", exist_ok=True)
-    df = load_hatexplain("../data/HateXplain.json")
-    df.to_csv("../data/final_datasets/hatexplain.csv", index=False)
-    print(df["label"].value_counts())
+    output_path = "../data/final_datasets/hatexplain.csv"
+    if os.path.exists(output_path):
+        print(f"Dataset already exists at {output_path}, skipping.")
+    else:
+        os.makedirs("../data/final_datasets", exist_ok=True)
+        df = load_hatexplain("../data/HateXplain.json")
+        df.to_csv(output_path, index=False)
+        print(df["label"].value_counts())
 
 
 # def load_implicit_hate(stg1_path: str, stg2_path: str) -> pd.DataFrame:
