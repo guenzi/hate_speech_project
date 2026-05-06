@@ -34,7 +34,7 @@ def save_training_curves(history, model_name, output_dir):
     filename = model_name.lower().replace(" ", "_").replace("+", "plus") + "_curves.png"
     plt.savefig(os.path.join(output_dir, filename), dpi=150)
     plt.close()
-    print(f"Courbes sauvegardées → {filename}")
+    print(f"Training curves saved → {filename}")
 
 
 def save_dataset_distribution(df, output_dir):
@@ -59,7 +59,7 @@ def save_dataset_distribution(df, output_dir):
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "dataset_distribution.png"), dpi=150)
     plt.close()
-    print("Distribution sauvegardée → dataset_distribution.png")
+    print("Distribution saved → dataset_distribution.png")
 
 
 def save_group_comparison(all_results, output_dir):
@@ -91,4 +91,4 @@ def save_group_comparison(all_results, output_dir):
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "group_f1_comparison.png"), dpi=150)
     plt.close()
-    print("Comparaison sauvegardée → group_f1_comparison.png")
+    print("Comparison saved → group_f1_comparison.png")

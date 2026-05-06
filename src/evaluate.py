@@ -22,9 +22,9 @@ def evaluate_per_group(df_eval, y_pred):
 
 
 def print_group_results(results, model_name=""):
-    print(f"\nF1 par groupe ({model_name})")
+    print(f"\nPer-group F1 ({model_name})")
     rows = [
-        {"Groupe": g, "F1": round(v["f1"], 3), "N positifs": v["n_pos"]}
+        {"Group": g, "F1": round(v["f1"], 3), "N positive": v["n_pos"]}
         for g, v in sorted(results.items(), key=lambda x: -x[1]["f1"])
     ]
     print(pd.DataFrame(rows).to_string(index=False))

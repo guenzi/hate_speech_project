@@ -36,16 +36,20 @@ def main(args):
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     args.output_dir = os.path.join(args.output_dir, run_id)
-    os.makedirs(args.output_dir, exist_ok=True)
-    print(f"Run ID : {run_id}  →  résultats dans {args.output_dir}")
+    plots_dir = os.path.join(args.output_dir, "plots")
+    json_dir = os.path.join(args.output_dir, "json")
+    csv_dir = os.path.join(args.output_dir, "csv")
+    for d in (plots_dir, json_dir, csv_dir):
+        os.makedirs(d, exist_ok=True)
+    print(f"Run ID : {run_id}  →  output in {args.output_dir}")
 
-    # Chargement et split des données
-    print("\n[1] Chargement des données...")
+    # Data loading and split
+    print("\n[1] Loading data...")
     df = load_data(args.data_path)
     print(f"Total : {len(df)} | Racist: {(df['label']==1).sum()} | Normal: {(df['label']==0).sum()}")
     df_train, df_val, df_test = split_data(df)
     print(f"Train: {len(df_train)} | Val: {len(df_val)} | Test: {len(df_test)}")
-    save_dataset_distribution(df, args.output_dir)
+    save_dataset_distribution(df, plots_dir)
 
     all_group_results = {}
     all_f1_global = {}
@@ -63,8 +67,8 @@ def main(args):
     all_group_results["SVM"] = evaluate_per_group(df_test, y_pred_svm)
     print_group_results(all_group_results["SVM"], "SVM")
 
-    # Tokenizer BERTweet
-    print("\n[3] Chargement tokenizer BERTweet...")
+    # BERTweet tokenizer
+    print("\n[3] Loading BERTweet tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False)
     train_loader, val_loader, test_loader = make_loaders(
         df_train, df_val, df_test, tokenizer, args.max_len, args.batch_size
@@ -77,7 +81,7 @@ def main(args):
         use_sample_weights=False, patience=args.patience,
     )
     save_checkpoint(model_base, os.path.join(args.output_dir, "checkpoints", "bertweet_baseline.pt"))
-    save_training_curves(history_base, "BERTweet Baseline", args.output_dir)
+    save_training_curves(history_base, "BERTweet Baseline", plots_dir)
 
     y_pred_base = predict(model_base, test_loader, device)
     all_f1_global["BERTweet Baseline"] = f1_score(df_test["label"], y_pred_base, average="macro")
@@ -96,7 +100,7 @@ def main(args):
         use_sample_weights=True, patience=args.patience,
     )
     save_checkpoint(model_weighted, os.path.join(args.output_dir, "checkpoints", "bertweet_weighted.pt"))
-    save_training_curves(history_weighted, "BERTweet Weighted", args.output_dir)
+    save_training_curves(history_weighted, "BERTweet Weighted", plots_dir)
 
     y_pred_weighted = predict(model_weighted, test_loader, device)
     all_f1_global["BERTweet Weighted"] = f1_score(df_test["label"], y_pred_weighted, average="macro")
@@ -106,7 +110,7 @@ def main(args):
 
     # BERTweet weighted + augmentation
     print("\n[6] BERTweet Weighted + Augmentation...")
-    aug_report_path = os.path.join(args.output_dir, "augmentation_report.json")
+    aug_report_path = os.path.join(json_dir, "augmentation_report.json")
     selected_methods = tuple(m.strip() for m in args.aug_methods.split(",") if m.strip())
     df_train_aug = augment_training_data(
         df_train,
@@ -116,7 +120,7 @@ def main(args):
         methods=selected_methods,
         save_report_path=aug_report_path,
     )
-    df_train_aug.to_csv(os.path.join(args.output_dir, "train_augmented.csv"), index=False)
+    df_train_aug.to_csv(os.path.join(csv_dir, "train_augmented.csv"), index=False)
 
     sample_weights_aug = compute_sample_weights(df_train_aug)
     train_loader_aug, _, _ = make_loaders(
@@ -127,7 +131,7 @@ def main(args):
         use_sample_weights=True, patience=args.patience,
     )
     save_checkpoint(model_aug, os.path.join(args.output_dir, "checkpoints", "bertweet_weighted_aug.pt"))
-    save_training_curves(history_aug, "BERTweet Weighted + Aug", args.output_dir)
+    save_training_curves(history_aug, "BERTweet Weighted + Aug", plots_dir)
 
     y_pred_aug = predict(model_aug, test_loader, device)
     all_f1_global["BERTweet Weighted + Aug"] = f1_score(df_test["label"], y_pred_aug, average="macro")
@@ -137,7 +141,7 @@ def main(args):
 
     # BERTweet + Disparity (disparity-aware weights + disparity-aware augmentation)
     print("\n[7] BERTweet + Disparity...")
-    disp_aug_report_path = os.path.join(args.output_dir, "augmentation_disparity_report.json")
+    disp_aug_report_path = os.path.join(json_dir, "augmentation_disparity_report.json")
     df_train_disp = augment_training_data_disparity(
         df_train,
         aug_factor=args.aug_factor,
@@ -146,7 +150,7 @@ def main(args):
         methods=selected_methods,
         save_report_path=disp_aug_report_path,
     )
-    df_train_disp.to_csv(os.path.join(args.output_dir, "train_disparity_augmented.csv"), index=False)
+    df_train_disp.to_csv(os.path.join(csv_dir, "train_disparity_augmented.csv"), index=False)
 
     sample_weights_disp = compute_disparity_weights(df_train_disp)
     train_loader_disp, _, _ = make_loaders(
@@ -157,7 +161,7 @@ def main(args):
         use_sample_weights=True, patience=args.patience,
     )
     save_checkpoint(model_disp, os.path.join(args.output_dir, "checkpoints", "bertweet_disparity.pt"))
-    save_training_curves(history_disp, "BERTweet + Disparity", args.output_dir)
+    save_training_curves(history_disp, "BERTweet + Disparity", plots_dir)
 
     y_pred_disp = predict(model_disp, test_loader, device)
     all_f1_global["BERTweet + Disparity"] = f1_score(df_test["label"], y_pred_disp, average="macro")
@@ -165,10 +169,10 @@ def main(args):
     all_group_results["BERTweet + Disparity"] = evaluate_per_group(df_test, y_pred_disp)
     print_group_results(all_group_results["BERTweet + Disparity"], "BERTweet + Disparity")
 
-    # Résultats globaux
-    print("\n=== Résultats globaux ===")
+    # Global results
+    print("\n=== Global Results ===")
     summary = pd.DataFrame({
-        "Modèle": list(all_f1_global.keys()),
+        "Model": list(all_f1_global.keys()),
         "Macro F1": [round(v, 3) for v in all_f1_global.values()],
     })
     print(summary.to_string(index=False))
@@ -180,12 +184,12 @@ def main(args):
             for model, res in all_group_results.items()
         },
     }
-    with open(os.path.join(args.output_dir, "results.json"), "w") as f:
+    with open(os.path.join(json_dir, "results.json"), "w") as f:
         json.dump(results, f, indent=2)
-    print(f"Résultats sauvegardés → {args.output_dir}/results.json")
+    print(f"Results saved → {json_dir}/results.json")
 
-    # Plot de comparaison global
-    save_group_comparison(all_group_results, args.output_dir)
+    # Global comparison plot
+    save_group_comparison(all_group_results, plots_dir)
 
 
 if __name__ == "__main__":

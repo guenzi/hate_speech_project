@@ -1,5 +1,5 @@
 data/*
 !data/HateXplain.json
 results/*/checkpoints/
-results/*/train_augmented.csv
+results/*/csv/
 results/checkpoints/

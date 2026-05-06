@@ -3,3 +3,4 @@ transformers
 sentencepiece
 scikit-learn
 seaborn
+emoji==0.6.0
