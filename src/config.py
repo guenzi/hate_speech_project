@@ -1,6 +1,7 @@
 import torch
 
 GROUPS = ["African", "Asian", "Jewish", "Arab", "Caucasian", "Hispanic", "Indian", "Islam"]
+RACIAL_TARGETS = {"African", "Asian", "Jewish", "Arab", "Caucasian", "Hispanic", "Indian", "Islam"}
 MODEL_NAME = "vinai/bertweet-base"
 SEED = 42
 

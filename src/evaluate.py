@@ -1,15 +1,13 @@
 import numpy as np
 import pandas as pd
 from sklearn.metrics import f1_score
-
 from config import GROUPS
-
 
 def evaluate_per_group(df_eval, y_pred):
     results = {}
     y_pred = np.array(y_pred)
     for group in GROUPS:
-        mask_pos = df_eval["targets_parsed"].apply(lambda t: group in t) & (df_eval["label"] == 1)
+        mask_pos = df_eval["targets"].apply(lambda t: group in t) & (df_eval["label"] == 1)
         mask_neg = df_eval["label"] == 0
         mask = mask_pos | mask_neg
         if mask_pos.sum() < 1:
@@ -20,7 +18,6 @@ def evaluate_per_group(df_eval, y_pred):
         }
     return results
 
-
 def print_group_results(results, model_name=""):
     print(f"\nPer-group F1 ({model_name})")
     rows = [
@@ -29,10 +26,9 @@ def print_group_results(results, model_name=""):
     ]
     print(pd.DataFrame(rows).to_string(index=False))
 
-
 def compute_sample_weights(df_train):
     group_counts = {
-        g: max(1, df_train["targets_parsed"].apply(lambda t: g in t).sum())
+        g: max(1, df_train["targets"].apply(lambda t: g in t).sum())
         for g in GROUPS
     }
     max_count = max(group_counts.values())
@@ -45,28 +41,22 @@ def compute_sample_weights(df_train):
     def get_weight(row):
         if row["label"] == 0:
             return 1.0
-        targets = [t for t in row["targets_parsed"] if t in group_weights]
+        targets = [t for t in row["targets"] if t in group_weights]
         return max((group_weights[t] for t in targets), default=1.0)
 
     return df_train.apply(get_weight, axis=1).values
 
-
 def compute_disparity_weights(df_train):
-    """
-    Weight based on both group size AND within-group hate/not-hate ratio.
-    Groups where normal >> hate (e.g. Caucasian) get an extra boost.
-    """
     hate_counts = {
-        g: max(1, ((df_train["label"] == 1) & df_train["targets_parsed"].apply(lambda t: g in t)).sum())
+        g: max(1, ((df_train["label"] == 1) & df_train["targets"].apply(lambda t: g in t)).sum())
         for g in GROUPS
     }
     normal_counts = {
-        g: max(1, ((df_train["label"] == 0) & df_train["targets_parsed"].apply(lambda t: g in t)).sum())
+        g: max(1, ((df_train["label"] == 0) & df_train["targets"].apply(lambda t: g in t)).sum())
         for g in GROUPS
     }
     max_hate = max(hate_counts.values())
 
-    # Extra disparity factor: how many more normal than hate within the group
     group_weights = {
         g: (max_hate / hate_counts[g]) * max(1.0, normal_counts[g] / hate_counts[g])
         for g in GROUPS
@@ -79,7 +69,7 @@ def compute_disparity_weights(df_train):
     def get_weight(row):
         if row["label"] == 0:
             return 1.0
-        targets = [t for t in row["targets_parsed"] if t in group_weights]
+        targets = [t for t in row["targets"] if t in group_weights]
         return max((group_weights[t] for t in targets), default=1.0)
 
     return df_train.apply(get_weight, axis=1).values

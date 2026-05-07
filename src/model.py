@@ -112,3 +112,27 @@ def save_checkpoint(model, path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save(model.state_dict(), path)
     print(f"Checkpoint saved → {path}")
+
+def load_checkpoint(filepath, device):
+    """
+    Charge un modèle BERTweet à partir d'un fichier .pt
+    """
+    print(f"Loading checkpoint: {filepath}")
+    
+    
+    model = AutoModelForSequenceClassification.from_pretrained(
+        MODEL_NAME, 
+        num_labels=2
+    )
+    
+   
+    checkpoint = torch.load(filepath, map_location=device)
+    
+    if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+        model.load_state_dict(checkpoint['state_dict'])
+    else:
+        model.load_state_dict(checkpoint)
+        
+    model.to(device)
+    model.eval()
+    return model

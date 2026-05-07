@@ -1,19 +1,14 @@
-"""
-Racism Detection Pipeline — Cluster version
-Usage:
-    python3 main.py --data_path /path/to/hatexplain.csv --output_dir /path/to/results/
-"""
-
 import argparse
 import json
 import os
 import sys
 import warnings
-from datetime import datetime
-
+import numpy as np
 import pandas as pd
+import joblib
+import torch
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics import classification_report, f1_score
+from sklearn.metrics import classification_report
 from sklearn.pipeline import Pipeline
 from sklearn.svm import LinearSVC
 from transformers import AutoTokenizer
@@ -23,178 +18,150 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 from augment import augment_training_data, augment_training_data_disparity
 from config import MODEL_NAME, SEED, get_device
 from dataset import load_data, make_loaders, split_data
-from evaluate import compute_disparity_weights, compute_sample_weights, evaluate_per_group, print_group_results
-from model import predict, save_checkpoint, train_bertweet
-from plots import save_dataset_distribution, save_group_comparison, save_training_curves
+from evaluate import compute_disparity_weights, compute_sample_weights, evaluate_per_group
+from model import predict, save_checkpoint, train_bertweet, load_checkpoint
+from plots import (
+    save_dataset_distribution, save_group_comparison, save_training_curves,
+    save_radar_chart, save_fairness_gap, save_fpr_fnr_per_group,
+    save_delta_f1, save_group_cooccurrence, save_bias_amplification,
+    save_weight_distribution,
+)
 
 warnings.filterwarnings("ignore")
 
 
-def main(args):
-    device = get_device()
-    print(f"Device : {device}")
+def setup_dirs(base_dir):
+    paths = {
+        "base": base_dir,
+        "plots": os.path.join(base_dir, "plots"),
+        "json": os.path.join(base_dir, "json"),
+        "csv": os.path.join(base_dir, "csv"),
+        "ckpt": os.path.join(base_dir, "checkpoints")
+    }
+    for p in paths.values():
+        os.makedirs(p, exist_ok=True)
+    return paths
 
-    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-    args.output_dir = os.path.join(args.output_dir, run_id)
-    plots_dir = os.path.join(args.output_dir, "plots")
-    json_dir = os.path.join(args.output_dir, "json")
-    csv_dir = os.path.join(args.output_dir, "csv")
-    for d in (plots_dir, json_dir, csv_dir):
-        os.makedirs(d, exist_ok=True)
-    print(f"Run ID : {run_id}  →  output in {args.output_dir}")
 
-    # Data loading and split
-    print("\n[1] Loading data...")
+def run_preprocess(args, paths):
+    print("\n=== [STEP] PREPROCESS ===")
     df = load_data(args.data_path)
-    print(f"Total : {len(df)} | Racist: {(df['label']==1).sum()} | Normal: {(df['label']==0).sum()}")
     df_train, df_val, df_test = split_data(df)
-    print(f"Train: {len(df_train)} | Val: {len(df_val)} | Test: {len(df_test)}")
-    save_dataset_distribution(df, plots_dir)
+
+    df_train.to_csv(os.path.join(paths["csv"], "train.csv"), index=False)
+    df_val.to_csv(os.path.join(paths["csv"], "val.csv"), index=False)
+    df_test.to_csv(os.path.join(paths["csv"], "test.csv"), index=False)
+
+    save_dataset_distribution(df, paths["plots"])
+
+
+def run_train(args, paths, device):
+    print("\n=== [STEP] TRAINING ===")
+    df_train = load_data(os.path.join(paths["csv"], "train.csv"))
+    df_val = load_data(os.path.join(paths["csv"], "val.csv"))
+    df_test = load_data(os.path.join(paths["csv"], "test.csv"))
+
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False)
+    selected_methods = tuple(m.strip() for m in args.aug_methods.split(",") if m.strip())
+
+    # --- [1/5] SVM Baseline (TF-IDF) ---
+    print("\n[1/5] Training SVM Baseline...")
+    svm_pipeline = Pipeline([
+        ('tfidf', TfidfVectorizer(max_features=5000)),
+        ('clf', LinearSVC(class_weight='balanced'))
+    ])
+    svm_pipeline.fit(df_train['text'], df_train['label'])
+    joblib.dump(svm_pipeline, os.path.join(paths["ckpt"], "svm.joblib"))
+    
+    # --- [2/5] BERTweet Baseline ---
+    print("\n[2/5] Training BERTweet Baseline...")
+    train_loader, val_loader, _ = make_loaders(df_train, df_val, df_test, tokenizer, args.max_len, args.batch_size)
+    model_base, _ = train_bertweet(train_loader, val_loader, device, args.epochs, args.lr, patience=args.patience)
+    save_checkpoint(model_base, os.path.join(paths["ckpt"], "bertweet_baseline.pt"))
+
+    # --- [3/5] BERTweet Weighted (No Augmentation) ---
+    print("\n[3/5] Training BERTweet Weighted (No Aug)...")
+    sample_weights = compute_sample_weights(df_train)
+    train_loader_w, _, _ = make_loaders(df_train, df_val, df_test, tokenizer, args.max_len, args.batch_size, sample_weights)
+    model_w, _ = train_bertweet(train_loader_w, val_loader, device, args.epochs, args.lr, use_sample_weights=True, patience=args.patience)
+    save_checkpoint(model_w, os.path.join(paths["ckpt"], "bertweet_weighted.pt"))
+
+    # --- [4/5] BERTweet Weighted + Aug ---
+    print("\n[4/5] Training BERTweet Weighted + Aug...")
+    df_train_aug = augment_training_data(df_train, aug_factor=args.aug_factor, seed=SEED, methods=selected_methods)
+    sample_weights_aug = compute_sample_weights(df_train_aug)
+    train_loader_aug, _, _ = make_loaders(df_train_aug, df_val, df_test, tokenizer, args.max_len, args.batch_size, sample_weights_aug)
+    model_aug, _ = train_bertweet(train_loader_aug, val_loader, device, args.epochs, args.lr, use_sample_weights=True, patience=args.patience)
+    save_checkpoint(model_aug, os.path.join(paths["ckpt"], "bertweet_weighted_aug.pt"))
+
+    # --- [5/5] BERTweet + Disparity ---
+    print("\n[5/5] Training BERTweet + Disparity...")
+    df_train_disp = augment_training_data_disparity(df_train, aug_factor=args.aug_factor, seed=SEED, methods=selected_methods)
+    sample_weights_disp = compute_disparity_weights(df_train_disp)
+    train_loader_disp, _, _ = make_loaders(df_train_disp, df_val, df_test, tokenizer, args.max_len, args.batch_size, sample_weights_disp)
+    model_disp, _ = train_bertweet(train_loader_disp, val_loader, device, args.epochs, args.lr, use_sample_weights=True, patience=args.patience)
+    save_checkpoint(model_disp, os.path.join(paths["ckpt"], "bertweet_disparity.pt"))
+
+
+def run_eval(args, paths, device):
+    print("\n=== [STEP] EVALUATION ===")
+    df_test = load_data(os.path.join(paths["csv"], "test.csv"))
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False)
+    _, _, test_loader = make_loaders(df_test, df_test, df_test, tokenizer, args.max_len, args.batch_size)
 
     all_group_results = {}
-    all_f1_global = {}
+    all_predictions = {}
+    for ckpt in os.listdir(paths["ckpt"]):
+        if ckpt.endswith(".joblib"):  # ← SVM
+            name = ckpt.replace(".joblib", "")
+            model = joblib.load(os.path.join(paths["ckpt"], ckpt))
+        elif ckpt.endswith(".pt"):    # ← BERTweet
+            name = ckpt.replace(".pt", "")
+            model = load_checkpoint(os.path.join(paths["ckpt"], ckpt), device)
+        else:
+            continue
+        
+        y_pred = predict(model, test_loader, device)
+        all_group_results[name] = evaluate_per_group(df_test, y_pred)
+        all_predictions[name] = np.array(y_pred).tolist()
 
-    # SVM baseline
-    print("\n[2] SVM + TF-IDF...")
-    svm_pipe = Pipeline([
-        ("tfidf", TfidfVectorizer(ngram_range=(1, 2), max_features=50000, sublinear_tf=True)),
-        ("clf", LinearSVC(C=1.0, max_iter=2000, random_state=SEED)),
-    ])
-    svm_pipe.fit(df_train["text"], df_train["label"])
-    y_pred_svm = svm_pipe.predict(df_test["text"])
-    all_f1_global["SVM"] = f1_score(df_test["label"], y_pred_svm, average="macro")
-    print(classification_report(df_test["label"], y_pred_svm, target_names=["Not Racist", "Racist"]))
-    all_group_results["SVM"] = evaluate_per_group(df_test, y_pred_svm)
-    print_group_results(all_group_results["SVM"], "SVM")
+    with open(os.path.join(paths["json"], "results.json"), "w") as f:
+        json.dump(all_group_results, f, indent=2)
+    with open(os.path.join(paths["json"], "predictions.json"), "w") as f:
+        json.dump(all_predictions, f)
 
-    # BERTweet tokenizer
-    print("\n[3] Loading BERTweet tokenizer...")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False)
-    train_loader, val_loader, test_loader = make_loaders(
-        df_train, df_val, df_test, tokenizer, args.max_len, args.batch_size
-    )
 
-    # BERTweet baseline
-    print("\n[4] BERTweet Baseline...")
-    model_base, history_base = train_bertweet(
-        train_loader, val_loader, device, args.epochs, args.lr,
-        use_sample_weights=False, patience=args.patience,
-    )
-    save_checkpoint(model_base, os.path.join(args.output_dir, "checkpoints", "bertweet_baseline.pt"))
-    save_training_curves(history_base, "BERTweet Baseline", plots_dir)
+def run_plot(args, paths):
+    with open(os.path.join(paths["json"], "results.json"), "r") as f:
+        all_group_results = json.load(f)
+    with open(os.path.join(paths["json"], "predictions.json"), "r") as f:
+        predictions_dict = {k: np.array(v) for k, v in json.load(f).items()}
 
-    y_pred_base = predict(model_base, test_loader, device)
-    all_f1_global["BERTweet Baseline"] = f1_score(df_test["label"], y_pred_base, average="macro")
-    print(classification_report(df_test["label"], y_pred_base, target_names=["Not Racist", "Racist"]))
-    all_group_results["BERTweet Baseline"] = evaluate_per_group(df_test, y_pred_base)
-    print_group_results(all_group_results["BERTweet Baseline"], "BERTweet Baseline")
+    df_test = load_data(os.path.join(paths["csv"], "test.csv"))
+    df_train = load_data(os.path.join(paths["csv"], "train.csv"))
 
-    # BERTweet weighted
-    print("\n[5] BERTweet Weighted...")
-    sample_weights = compute_sample_weights(df_train)
-    train_loader_w, _, _ = make_loaders(
-        df_train, df_val, df_test, tokenizer, args.max_len, args.batch_size, sample_weights
-    )
-    model_weighted, history_weighted = train_bertweet(
-        train_loader_w, val_loader, device, args.epochs, args.lr,
-        use_sample_weights=True, patience=args.patience,
-    )
-    save_checkpoint(model_weighted, os.path.join(args.output_dir, "checkpoints", "bertweet_weighted.pt"))
-    save_training_curves(history_weighted, "BERTweet Weighted", plots_dir)
+    # Plots existants
+    save_group_comparison(all_group_results, paths["plots"])
 
-    y_pred_weighted = predict(model_weighted, test_loader, device)
-    all_f1_global["BERTweet Weighted"] = f1_score(df_test["label"], y_pred_weighted, average="macro")
-    print(classification_report(df_test["label"], y_pred_weighted, target_names=["Not Racist", "Racist"]))
-    all_group_results["BERTweet Weighted"] = evaluate_per_group(df_test, y_pred_weighted)
-    print_group_results(all_group_results["BERTweet Weighted"], "BERTweet Weighted")
+    # Nouveaux plots
+    save_radar_chart(all_group_results, paths["plots"])
+    save_fairness_gap(all_group_results, paths["plots"])
+    save_delta_f1(all_group_results, baseline_name="bertweet_baseline", output_dir=paths["plots"])
+    save_group_cooccurrence(df_train, paths["plots"])
+    save_fpr_fnr_per_group(df_test, predictions_dict, paths["plots"])
+    save_bias_amplification(df_test, predictions_dict, paths["plots"])
 
-    # BERTweet weighted + augmentation
-    print("\n[6] BERTweet Weighted + Augmentation...")
-    aug_report_path = os.path.join(json_dir, "augmentation_report.json")
-    selected_methods = tuple(m.strip() for m in args.aug_methods.split(",") if m.strip())
-    df_train_aug = augment_training_data(
-        df_train,
-        aug_factor=args.aug_factor,
-        min_group_samples=args.aug_min_group_samples,
-        seed=SEED,
-        methods=selected_methods,
-        save_report_path=aug_report_path,
-    )
-    df_train_aug.to_csv(os.path.join(csv_dir, "train_augmented.csv"), index=False)
-
-    sample_weights_aug = compute_sample_weights(df_train_aug)
-    train_loader_aug, _, _ = make_loaders(
-        df_train_aug, df_val, df_test, tokenizer, args.max_len, args.batch_size, sample_weights_aug
-    )
-    model_aug, history_aug = train_bertweet(
-        train_loader_aug, val_loader, device, args.epochs, args.lr,
-        use_sample_weights=True, patience=args.patience,
-    )
-    save_checkpoint(model_aug, os.path.join(args.output_dir, "checkpoints", "bertweet_weighted_aug.pt"))
-    save_training_curves(history_aug, "BERTweet Weighted + Aug", plots_dir)
-
-    y_pred_aug = predict(model_aug, test_loader, device)
-    all_f1_global["BERTweet Weighted + Aug"] = f1_score(df_test["label"], y_pred_aug, average="macro")
-    print(classification_report(df_test["label"], y_pred_aug, target_names=["Not Racist", "Racist"]))
-    all_group_results["BERTweet Weighted + Aug"] = evaluate_per_group(df_test, y_pred_aug)
-    print_group_results(all_group_results["BERTweet Weighted + Aug"], "BERTweet Weighted + Aug")
-
-    # BERTweet + Disparity (disparity-aware weights + disparity-aware augmentation)
-    print("\n[7] BERTweet + Disparity...")
-    disp_aug_report_path = os.path.join(json_dir, "augmentation_disparity_report.json")
-    df_train_disp = augment_training_data_disparity(
-        df_train,
-        aug_factor=args.aug_factor,
-        disparity_threshold=args.aug_disparity_threshold,
-        seed=SEED,
-        methods=selected_methods,
-        save_report_path=disp_aug_report_path,
-    )
-    df_train_disp.to_csv(os.path.join(csv_dir, "train_disparity_augmented.csv"), index=False)
-
-    sample_weights_disp = compute_disparity_weights(df_train_disp)
-    train_loader_disp, _, _ = make_loaders(
-        df_train_disp, df_val, df_test, tokenizer, args.max_len, args.batch_size, sample_weights_disp
-    )
-    model_disp, history_disp = train_bertweet(
-        train_loader_disp, val_loader, device, args.epochs, args.lr,
-        use_sample_weights=True, patience=args.patience,
-    )
-    save_checkpoint(model_disp, os.path.join(args.output_dir, "checkpoints", "bertweet_disparity.pt"))
-    save_training_curves(history_disp, "BERTweet + Disparity", plots_dir)
-
-    y_pred_disp = predict(model_disp, test_loader, device)
-    all_f1_global["BERTweet + Disparity"] = f1_score(df_test["label"], y_pred_disp, average="macro")
-    print(classification_report(df_test["label"], y_pred_disp, target_names=["Not Racist", "Racist"]))
-    all_group_results["BERTweet + Disparity"] = evaluate_per_group(df_test, y_pred_disp)
-    print_group_results(all_group_results["BERTweet + Disparity"], "BERTweet + Disparity")
-
-    # Global results
-    print("\n=== Global Results ===")
-    summary = pd.DataFrame({
-        "Model": list(all_f1_global.keys()),
-        "Macro F1": [round(v, 3) for v in all_f1_global.values()],
-    })
-    print(summary.to_string(index=False))
-
-    results = {
-        "f1_global": all_f1_global,
-        "f1_per_group": {
-            model: {g: v["f1"] for g, v in res.items()}
-            for model, res in all_group_results.items()
-        },
-    }
-    with open(os.path.join(json_dir, "results.json"), "w") as f:
-        json.dump(results, f, indent=2)
-    print(f"Results saved → {json_dir}/results.json")
-
-    # Global comparison plot
-    save_group_comparison(all_group_results, plots_dir)
+    # Weight distributions
+    weights_count = compute_sample_weights(df_train)
+    weights_disp = compute_disparity_weights(df_train)
+    save_weight_distribution(df_train, weights_count, "Count-based", paths["plots"])
+    save_weight_distribution(df_train, weights_disp, "Disparity-aware", paths["plots"])
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Racism detection pipeline")
-    parser.add_argument("--data_path", type=str, required=True)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", type=str, choices=["preprocess", "train", "eval", "plot", "all"], default="all")
+    parser.add_argument("--data_path", type=str)
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--patience", type=int, default=2)
@@ -202,8 +169,13 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--max_len", type=int, default=128)
     parser.add_argument("--aug_factor", type=int, default=2)
-    parser.add_argument("--aug_min_group_samples", type=int, default=200)
-    parser.add_argument("--aug_disparity_threshold", type=float, default=1.5)
     parser.add_argument("--aug_methods", type=str, default="synonym,delete,swap,punct,char,combo")
+
     args = parser.parse_args()
-    main(args)
+    device = get_device()
+    paths = setup_dirs(args.output_dir)
+
+    if args.mode in ["preprocess", "all"]: run_preprocess(args, paths)
+    if args.mode in ["train", "all"]: run_train(args, paths, device)
+    if args.mode in ["eval", "all"]: run_eval(args, paths, device)
+    if args.mode in ["plot", "all"]: run_plot(args, paths)

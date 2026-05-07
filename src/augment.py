@@ -183,10 +183,9 @@ def augment_text(text, rng, methods=("synonym", "delete", "swap", "punct", "char
 
 
 def _do_augment(df_train, targets_to_augment, aug_factor, methods, seed, save_report_path):
-    """Shared augmentation logic given a set of groups to augment."""
     rng = random.Random(seed)
     group_counts_before = {
-        g: int(((df_train["label"] == 1) & df_train["targets_parsed"].apply(lambda t: g in t)).sum())
+        g: int(((df_train["label"] == 1) & df_train["targets"].apply(lambda t: g in t)).sum())
         for g in GROUPS
     }
 
@@ -196,7 +195,7 @@ def _do_augment(df_train, targets_to_augment, aug_factor, methods, seed, save_re
     for _, row in df_train.iterrows():
         if row["label"] != 1:
             continue
-        group_targets = [t for t in row["targets_parsed"] if t in targets_to_augment]
+        group_targets = [t for t in row["targets"] if t in targets_to_augment]
         if not group_targets:
             continue
         for k in range(aug_factor):
@@ -225,7 +224,7 @@ def _do_augment(df_train, targets_to_augment, aug_factor, methods, seed, save_re
     out = out.sample(frac=1, random_state=seed).reset_index(drop=True)
 
     group_counts_after = {
-        g: int(((out["label"] == 1) & out["targets_parsed"].apply(lambda t: g in t)).sum())
+        g: int(((out["label"] == 1) & out["targets"].apply(lambda t: g in t)).sum())
         for g in GROUPS
     }
 
@@ -258,9 +257,8 @@ def augment_training_data(
     methods=("synonym", "delete", "swap", "punct", "char", "combo"),
     save_report_path=None,
 ):
-    """Augments hate samples from groups with hate_count < min_group_samples."""
     group_counts = {
-        g: int(((df_train["label"] == 1) & df_train["targets_parsed"].apply(lambda t: g in t)).sum())
+        g: int(((df_train["label"] == 1) & df_train["targets"].apply(lambda t: g in t)).sum())
         for g in GROUPS
     }
     targets_to_augment = {g for g, c in group_counts.items() if c < min_group_samples}
@@ -280,17 +278,12 @@ def augment_training_data_disparity(
     methods=("synonym", "delete", "swap", "punct", "char", "combo"),
     save_report_path=None,
 ):
-    """
-    Augments hate samples from groups where normal_count / hate_count > disparity_threshold.
-    Targets groups where the model sees many more normal than hate examples, making
-    hate detection harder for that group.
-    """
     hate_counts = {
-        g: max(1, ((df_train["label"] == 1) & df_train["targets_parsed"].apply(lambda t: g in t)).sum())
+        g: max(1, ((df_train["label"] == 1) & df_train["targets"].apply(lambda t: g in t)).sum())
         for g in GROUPS
     }
     normal_counts = {
-        g: max(1, ((df_train["label"] == 0) & df_train["targets_parsed"].apply(lambda t: g in t)).sum())
+        g: max(1, ((df_train["label"] == 0) & df_train["targets"].apply(lambda t: g in t)).sum())
         for g in GROUPS
     }
     disparity = {g: normal_counts[g] / hate_counts[g] for g in GROUPS}
