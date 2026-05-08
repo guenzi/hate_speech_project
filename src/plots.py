@@ -11,10 +11,10 @@ from config import GROUPS
 
 COLORS = {
     "SVM": "steelblue",
-    "BERTweet_baseline": "tomato",
-    "BERTweet_weighted": "seagreen",
-    "BERTweet_weighted_aug": "darkorchid",
-    "BERTweet_disparity": "darkorange",
+    "bertweet_baseline": "tomato",
+    "bertweet_weighted": "seagreen",
+    "bertweet_weighted_aug": "darkorchid",
+    "bertweet_disparity": "darkorange",
 }
 
 
@@ -366,4 +366,35 @@ def save_group_comparison(all_results, output_dir):
     ax.set_ylim(0, 1.05)
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "group_f1_comparison.png"), dpi=150)
+    plt.close()
+
+def save_macro_f1_per_epoch(histories, output_dir):
+    """
+    Toutes les courbes val Macro F1 par epoch sur le même graphe.
+    Permet de comparer la vitesse de convergence et le niveau final.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    for name, history in histories.items():
+        val_f1 = history["val_f1"]
+        epochs = range(1, len(val_f1) + 1)
+        color = COLORS.get(name, "gray")
+        ax.plot(epochs, val_f1, color=color, marker="o", linewidth=2, label=name)
+        # Marque le meilleur epoch
+        best_epoch = int(np.argmax(val_f1)) + 1
+        best_val = max(val_f1)
+        ax.annotate(f"{best_val:.3f}",
+                    xy=(best_epoch, best_val),
+                    xytext=(4, 4), textcoords="offset points",
+                    fontsize=7, color=color)
+
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Val Macro F1")
+    ax.set_title("Validation Macro F1 per Epoch — All Models")
+    ax.legend(fontsize=9)
+    ax.set_ylim(0, 1.05)
+    ax.grid(axis="y", linestyle="--", alpha=0.4)
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "macro_f1_per_epoch.png"), dpi=150)
     plt.close()

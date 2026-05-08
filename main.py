@@ -25,6 +25,7 @@ from plots import (
     save_radar_chart, save_fairness_gap, save_fpr_fnr_per_group,
     save_delta_f1, save_group_cooccurrence, save_bias_amplification,
     save_weight_distribution,
+    save_macro_f1_per_epoch,
 )
 
 warnings.filterwarnings("ignore")
@@ -63,6 +64,7 @@ def run_train(args, paths, device):
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False)
     selected_methods = tuple(m.strip() for m in args.aug_methods.split(",") if m.strip())
+    histories = {}
 
     # --- [1/5] SVM Baseline (TF-IDF) ---
     print("\n[1/5] Training SVM Baseline...")
@@ -72,36 +74,42 @@ def run_train(args, paths, device):
     ])
     svm_pipeline.fit(df_train['text'], df_train['label'])
     joblib.dump(svm_pipeline, os.path.join(paths["ckpt"], "svm.joblib"))
-    
+
     # --- [2/5] BERTweet Baseline ---
     print("\n[2/5] Training BERTweet Baseline...")
     train_loader, val_loader, _ = make_loaders(df_train, df_val, df_test, tokenizer, args.max_len, args.batch_size)
-    model_base, _ = train_bertweet(train_loader, val_loader, device, args.epochs, args.lr, patience=args.patience)
+    model_base, history = train_bertweet(train_loader, val_loader, device, args.epochs, args.lr, patience=args.patience)
     save_checkpoint(model_base, os.path.join(paths["ckpt"], "bertweet_baseline.pt"))
+    histories["bertweet_baseline"] = history
 
-    # --- [3/5] BERTweet Weighted (No Augmentation) ---
+    # --- [3/5] BERTweet Weighted ---
     print("\n[3/5] Training BERTweet Weighted (No Aug)...")
     sample_weights = compute_sample_weights(df_train)
     train_loader_w, _, _ = make_loaders(df_train, df_val, df_test, tokenizer, args.max_len, args.batch_size, sample_weights)
-    model_w, _ = train_bertweet(train_loader_w, val_loader, device, args.epochs, args.lr, use_sample_weights=True, patience=args.patience)
+    model_w, history = train_bertweet(train_loader_w, val_loader, device, args.epochs, args.lr, use_sample_weights=True, patience=args.patience)
     save_checkpoint(model_w, os.path.join(paths["ckpt"], "bertweet_weighted.pt"))
+    histories["bertweet_weighted"] = history
 
     # --- [4/5] BERTweet Weighted + Aug ---
     print("\n[4/5] Training BERTweet Weighted + Aug...")
     df_train_aug = augment_training_data(df_train, aug_factor=args.aug_factor, seed=SEED, methods=selected_methods)
     sample_weights_aug = compute_sample_weights(df_train_aug)
     train_loader_aug, _, _ = make_loaders(df_train_aug, df_val, df_test, tokenizer, args.max_len, args.batch_size, sample_weights_aug)
-    model_aug, _ = train_bertweet(train_loader_aug, val_loader, device, args.epochs, args.lr, use_sample_weights=True, patience=args.patience)
+    model_aug, history = train_bertweet(train_loader_aug, val_loader, device, args.epochs, args.lr, use_sample_weights=True, patience=args.patience)
     save_checkpoint(model_aug, os.path.join(paths["ckpt"], "bertweet_weighted_aug.pt"))
+    histories["bertweet_weighted_aug"] = history
 
     # --- [5/5] BERTweet + Disparity ---
     print("\n[5/5] Training BERTweet + Disparity...")
     df_train_disp = augment_training_data_disparity(df_train, aug_factor=args.aug_factor, seed=SEED, methods=selected_methods)
     sample_weights_disp = compute_disparity_weights(df_train_disp)
     train_loader_disp, _, _ = make_loaders(df_train_disp, df_val, df_test, tokenizer, args.max_len, args.batch_size, sample_weights_disp)
-    model_disp, _ = train_bertweet(train_loader_disp, val_loader, device, args.epochs, args.lr, use_sample_weights=True, patience=args.patience)
+    model_disp, history = train_bertweet(train_loader_disp, val_loader, device, args.epochs, args.lr, use_sample_weights=True, patience=args.patience)
     save_checkpoint(model_disp, os.path.join(paths["ckpt"], "bertweet_disparity.pt"))
+    histories["bertweet_disparity"] = history
 
+    with open(os.path.join(paths["json"], "histories.json"), "w") as f:
+        json.dump(histories, f, indent=2)
 
 def run_eval(args, paths, device):
     print("\n=== [STEP] EVALUATION ===")
@@ -111,17 +119,22 @@ def run_eval(args, paths, device):
 
     all_group_results = {}
     all_predictions = {}
+
     for ckpt in os.listdir(paths["ckpt"]):
-        if ckpt.endswith(".joblib"):  # ← SVM
+        if ckpt.endswith(".joblib"):
             name = ckpt.replace(".joblib", "")
             model = joblib.load(os.path.join(paths["ckpt"], ckpt))
-        elif ckpt.endswith(".pt"):    # ← BERTweet
+            # Le SVM prédit directement sur le texte brut
+            y_pred = model.predict(df_test["text"].values)
+
+        elif ckpt.endswith(".pt"):
             name = ckpt.replace(".pt", "")
             model = load_checkpoint(os.path.join(paths["ckpt"], ckpt), device)
+            y_pred = predict(model, test_loader, device)
+
         else:
             continue
-        
-        y_pred = predict(model, test_loader, device)
+
         all_group_results[name] = evaluate_per_group(df_test, y_pred)
         all_predictions[name] = np.array(y_pred).tolist()
 
@@ -130,13 +143,14 @@ def run_eval(args, paths, device):
     with open(os.path.join(paths["json"], "predictions.json"), "w") as f:
         json.dump(all_predictions, f)
 
-
 def run_plot(args, paths):
     with open(os.path.join(paths["json"], "results.json"), "r") as f:
         all_group_results = json.load(f)
     with open(os.path.join(paths["json"], "predictions.json"), "r") as f:
         predictions_dict = {k: np.array(v) for k, v in json.load(f).items()}
-
+    with open(os.path.join(paths["json"], "histories.json"), "r") as f:  # ← nouveau
+        histories = json.load(f)
+    
     df_test = load_data(os.path.join(paths["csv"], "test.csv"))
     df_train = load_data(os.path.join(paths["csv"], "train.csv"))
 
@@ -156,7 +170,7 @@ def run_plot(args, paths):
     weights_disp = compute_disparity_weights(df_train)
     save_weight_distribution(df_train, weights_count, "Count-based", paths["plots"])
     save_weight_distribution(df_train, weights_disp, "Disparity-aware", paths["plots"])
-
+    save_macro_f1_per_epoch(histories, paths["plots"])
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -164,7 +178,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_path", type=str)
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--epochs", type=int, default=5)
-    parser.add_argument("--patience", type=int, default=2)
+    parser.add_argument("--patience", type=int, default=5)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--max_len", type=int, default=128)
