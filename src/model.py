@@ -1,11 +1,11 @@
 import os
-
 import numpy as np
 import torch
 import torch.nn as nn
 from sklearn.metrics import f1_score
 from torch.optim import AdamW
-from transformers import AutoModelForSequenceClassification, get_linear_schedule_with_warmup
+# Remplacement de AutoModel par RobertaForSequenceClassification
+from transformers import RobertaForSequenceClassification, get_linear_schedule_with_warmup
 
 from config import MODEL_NAME
 
@@ -27,7 +27,8 @@ class FocalLoss(nn.Module):
 
 def train_bertweet(train_loader, val_loader, device, epochs, lr,
                    use_sample_weights=False, patience=2):
-    model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=2).to(device)
+    # Utilisation explicite de RobertaForSequenceClassification
+    model = RobertaForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=2).to(device)
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=0.01)
     total_steps = len(train_loader) * epochs
     scheduler = get_linear_schedule_with_warmup(
@@ -83,12 +84,12 @@ def train_bertweet(train_loader, val_loader, device, epochs, lr,
             best_val_f1 = val_f1
             best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             epochs_no_improve = 0
-            print(f"  best model (val F1={best_val_f1:.4f})")
+            print(f"   best model (val F1={best_val_f1:.4f})")
         else:
             epochs_no_improve += 1
-            print(f"  no improvement ({epochs_no_improve}/{patience})")
+            print(f"   no improvement ({epochs_no_improve}/{patience})")
             if epochs_no_improve >= patience:
-                print(f"  early stopping at epoch {epoch+1}")
+                print(f"   early stopping at epoch {epoch+1}")
                 break
 
     model.load_state_dict({k: v.to(device) for k, v in best_state.items()})
@@ -113,25 +114,30 @@ def save_checkpoint(model, path):
     torch.save(model.state_dict(), path)
     print(f"Checkpoint saved → {path}")
 
+
 def load_checkpoint(filepath, device):
     """
-    Charge un modèle BERTweet à partir d'un fichier .pt
+    Charge un modèle BERTweet à partir d'un fichier .pt en forçant l'architecture de classification.
     """
     print(f"Loading checkpoint: {filepath}")
     
-    
-    model = AutoModelForSequenceClassification.from_pretrained(
+    # On force l'architecture cible (RoBERTa pour classification à 2 classes)
+    model = RobertaForSequenceClassification.from_pretrained(
         MODEL_NAME, 
         num_labels=2
     )
     
-   
     checkpoint = torch.load(filepath, map_location=device)
     
+    # Extraction propre du state_dict
     if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
-        model.load_state_dict(checkpoint['state_dict'])
+        state_dict = checkpoint['state_dict']
     else:
-        model.load_state_dict(checkpoint)
+        state_dict = checkpoint
+        
+    # On applique le dictionnaire de poids de manière stricte
+    model.load_state_dict(state_dict, strict=True)
+    print("-> Weights successfully mapped to the classification architecture!")
         
     model.to(device)
     model.eval()

@@ -8,7 +8,7 @@ import pandas as pd
 import joblib
 import torch
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, f1_score
 from sklearn.pipeline import Pipeline
 from sklearn.svm import LinearSVC
 from transformers import AutoTokenizer
@@ -26,6 +26,7 @@ from plots import (
     save_delta_f1, save_group_cooccurrence, save_bias_amplification,
     save_weight_distribution,
     save_macro_f1_per_epoch,
+    save_macro_vs_group_f1,
 )
 
 warnings.filterwarnings("ignore")
@@ -111,6 +112,7 @@ def run_train(args, paths, device):
     with open(os.path.join(paths["json"], "histories.json"), "w") as f:
         json.dump(histories, f, indent=2)
 
+
 def run_eval(args, paths, device):
     print("\n=== [STEP] EVALUATION ===")
     df_test = load_data(os.path.join(paths["csv"], "test.csv"))
@@ -124,7 +126,6 @@ def run_eval(args, paths, device):
         if ckpt.endswith(".joblib"):
             name = ckpt.replace(".joblib", "")
             model = joblib.load(os.path.join(paths["ckpt"], ckpt))
-            # Le SVM prédit directement sur le texte brut
             y_pred = model.predict(df_test["text"].values)
 
         elif ckpt.endswith(".pt"):
@@ -136,6 +137,10 @@ def run_eval(args, paths, device):
             continue
 
         all_group_results[name] = evaluate_per_group(df_test, y_pred)
+        # Stocke le vrai macro F1 binaire (hate vs. not hate) sur le test set
+        all_group_results[name]["__macro_f1__"] = f1_score(
+            df_test["label"].values, y_pred, average="macro"
+        )
         all_predictions[name] = np.array(y_pred).tolist()
 
     with open(os.path.join(paths["json"], "results.json"), "w") as f:
@@ -143,34 +148,33 @@ def run_eval(args, paths, device):
     with open(os.path.join(paths["json"], "predictions.json"), "w") as f:
         json.dump(all_predictions, f)
 
+
 def run_plot(args, paths):
     with open(os.path.join(paths["json"], "results.json"), "r") as f:
         all_group_results = json.load(f)
     with open(os.path.join(paths["json"], "predictions.json"), "r") as f:
         predictions_dict = {k: np.array(v) for k, v in json.load(f).items()}
-    with open(os.path.join(paths["json"], "histories.json"), "r") as f:  # ← nouveau
+    with open(os.path.join(paths["json"], "histories.json"), "r") as f:
         histories = json.load(f)
-    
+
     df_test = load_data(os.path.join(paths["csv"], "test.csv"))
     df_train = load_data(os.path.join(paths["csv"], "train.csv"))
 
-    # Plots existants
     save_group_comparison(all_group_results, paths["plots"])
-
-    # Nouveaux plots
     save_radar_chart(all_group_results, paths["plots"])
     save_fairness_gap(all_group_results, paths["plots"])
     save_delta_f1(all_group_results, baseline_name="bertweet_baseline", output_dir=paths["plots"])
     save_group_cooccurrence(df_train, paths["plots"])
     save_fpr_fnr_per_group(df_test, predictions_dict, paths["plots"])
     save_bias_amplification(df_test, predictions_dict, paths["plots"])
+    save_macro_vs_group_f1(all_group_results, paths["plots"])
 
-    # Weight distributions
     weights_count = compute_sample_weights(df_train)
     weights_disp = compute_disparity_weights(df_train)
     save_weight_distribution(df_train, weights_count, "Count-based", paths["plots"])
     save_weight_distribution(df_train, weights_disp, "Disparity-aware", paths["plots"])
     save_macro_f1_per_epoch(histories, paths["plots"])
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
