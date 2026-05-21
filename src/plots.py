@@ -15,7 +15,7 @@ from config import GROUPS
 NAVY   = "#1a2e6e"
 RED    = "#cc2233"
 SILVER = "#b0b8c9"
-BG     = "#F3FFF4"       # fond figure
+BG     = "#FFF6EB"       # fond figure
 PANEL  = "#f5f5f5"       # fond axes
 
 COLORS = {
@@ -193,7 +193,10 @@ def save_radar_chart(all_results, output_dir):
 
     fig, ax = plt.subplots(figsize=(10, 10), subplot_kw=dict(polar=True))
     fig.patch.set_facecolor(BG)
+    
+    # On garde ton fond d'origine pour le panneau ici :
     ax.set_facecolor(PANEL)
+    
     ax.set_theta_offset(pi / 2)
     ax.set_theta_direction(-1)
     ax.set_xticks(angles[:-1])
@@ -208,8 +211,12 @@ def save_radar_chart(all_results, output_dir):
         values = [res.get(g, {}).get("f1", 0.0) for g in GROUPS] + \
                  [res.get(GROUPS[0], {}).get("f1", 0.0)]
         color = COLORS.get(name, "gray")
+        
+        # On trace la ligne (le contour)
         ax.plot(angles, values, color=color, linewidth=3.0, label=name, zorder=3)
-        ax.fill(angles, values, color=color, alpha=0.10)
+        
+        # ICI : L'appel à ax.fill(...) a été retiré.
+        # Les lignes se croiseront désormais sur le fond PANEL sans zone opaque au milieu.
 
     ax.legend(loc="upper right", bbox_to_anchor=(1.35, 1.15), fontsize=11)
     _title_box(ax, "Per-Group F1 — Radar", fontsize=16)
@@ -217,7 +224,6 @@ def save_radar_chart(all_results, output_dir):
     plt.savefig(os.path.join(output_dir, "radar_f1.png"),
                 dpi=300, bbox_inches="tight", facecolor=BG)
     plt.close()
-
 
 # ── 2. Fairness Gap ───────────────────────────────────────────────────────
 def save_fairness_gap(all_results, output_dir):
@@ -396,8 +402,19 @@ def save_bias_amplification(df_eval, predictions_dict, output_dir):
     x = np.arange(len(GROUPS))
     width = 0.8 / len(predictions_dict)
 
+    # Une palette de bleus distincts, un par modèle
+    blue_palette = [
+        "#1f4e8c",  # bleu foncé
+        "#2e86de",  # bleu vif
+        "#74b9ff",  # bleu clair
+        "#a8d8ea",  # bleu pâle
+        "#0a3d62",  # bleu nuit
+        "#48dbfb",  # bleu cyan
+    ]
+
     for i, (name, y_pred) in enumerate(predictions_dict.items()):
         y_pred = np.array(y_pred)
+        model_blue = blue_palette[i % len(blue_palette)]
         ratios = []
         for group in GROUPS:
             mask = df_eval["targets"].apply(lambda t: group in t)
@@ -408,7 +425,8 @@ def save_bias_amplification(df_eval, predictions_dict, output_dir):
             ratios.append(pred_rate / actual_rate if actual_rate > 0 else 1.0)
 
         offset = (i - len(predictions_dict) / 2 + 0.5) * width
-        bar_colors = [RED if r > 1.2 or r < 0.8 else NAVY for r in ratios]
+        # Rouge si hors tolérance, sinon la teinte de bleu propre au modèle
+        bar_colors = [RED if r > 1.2 or r < 0.8 else model_blue for r in ratios]
         bars = ax.bar(x + offset, ratios, width, label=name,
                       color=bar_colors, alpha=0.85,
                       edgecolor="white", linewidth=0.7, zorder=3)
@@ -430,7 +448,6 @@ def save_bias_amplification(df_eval, predictions_dict, output_dir):
     plt.savefig(os.path.join(output_dir, "bias_amplification.png"),
                 dpi=300, facecolor=BG)
     plt.close()
-
 
 # ── 7. Training curves ────────────────────────────────────────────────────
 def save_training_curves(history, model_name, output_dir):
