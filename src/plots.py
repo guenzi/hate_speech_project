@@ -1,8 +1,5 @@
-# ── Plots.py (style présentation — navy + rouge + fond gris) ──────────────
-
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches  # Fixé : Import propre pour éviter la NameError !
+import matplotlib.pyplot as pltFixé
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 import matplotlib.patheffects as pe
 import os
@@ -10,13 +7,11 @@ from math import pi
 from sklearn.metrics import confusion_matrix
 from config import GROUPS
 
-# ── Palette & style global ────────────────────────────────────────────────
-
 NAVY   = "#1a2e6e"
 RED    = "#cc2233"
 SILVER = "#b0b8c9"
-BG     = "#FFF6EB"       # fond figure
-PANEL  = "#f5f5f5"       # fond axes
+BG     = "#FFF6EB"
+PANEL  = "#f5f5f5"
 
 COLORS = {
     "SVM":                    NAVY,
@@ -26,14 +21,21 @@ COLORS = {
     "bertweet_disparity":     "#c96a00",
 }
 
-# groupes sous-représentés (barres rouges dans image 1)
 UNDERREPRESENTED = {"Hispanic", "Asian", "Arab", "Indian"}
 
-# ── rcParams communs ──────────────────────────────────────────────────────
+
 
 def _apply_style():
-    # FACTEUR DE GRANDEUR (Scale) : On augmente la base des polices à 14 (au lieu de 9-10)
-    # Matplotlib va automatiquement adapter la taille des titres, labels et légendes.
+    '''
+    Applies a consistent and visually appealing style to all plots. This includes setting background colors, font styles, grid lines, 
+    and other aesthetic elements to enhance readability and appeal
+
+    Args:
+        None
+
+    Returns:
+        None
+    '''
     base_size = 14
     
     plt.rcParams.update({
@@ -47,33 +49,54 @@ def _apply_style():
         "axes.grid":          True,
         "grid.color":         "#cccccc",
         "grid.linestyle":     "--",
-        "grid.linewidth":     0.8,  # Légèrement plus épais pour les grands plots
+        "grid.linewidth":     0.8,
         "axes.axisbelow":     True,
         "font.family":        "DejaVu Sans",
         "font.weight":        "bold",
-        "font.size":          base_size,       # Échelle globale augmentée
-        "axes.titlesize":     base_size + 4,   # Titres plus grands
+        "font.size":          base_size,       
+        "axes.titlesize":     base_size + 4,   
         "axes.titleweight":   "bold",
         "axes.titlecolor":    NAVY,
-        "axes.labelsize":     base_size + 1,   # Axes labels plus grands
+        "axes.labelsize":     base_size + 1, 
         "axes.labelcolor":    "#333333",
-        "xtick.labelsize":    base_size - 1,   # Graduations X plus grandes
-        "ytick.labelsize":    base_size - 1,   # Graduations Y plus grandes
+        "xtick.labelsize":    base_size - 1,   
+        "ytick.labelsize":    base_size - 1,  
         "xtick.color":        "#444444",
         "ytick.color":        "#444444",
         "legend.frameon":     True,
         "legend.framealpha":  0.9,
         "legend.edgecolor":   "#cccccc",
-        "legend.fontsize":    base_size - 1,   # Légende plus grande
+        "legend.fontsize":    base_size - 1,   
     })
 
 def _spine_clean(ax):
-    """Garde uniquement le bas, supprime les ticks Y."""
+    '''
+    Keep only the bottom spine of the axes visible and remove the top, right, and left spines for a cleaner look
+
+    Args:
+        ax (matplotlib.axes.Axes): The axes object to modify
+    
+    Returns:
+        None
+    '''
     ax.yaxis.set_tick_params(length=0)
     ax.tick_params(axis="y", which="both", left=False)
 
 def _bar_labels(ax, bars, fmt="{:.2f}", offset=0.012, fontsize=12, color=None):
-    """Annote chaque barre avec sa valeur (fonts augmentées)."""
+    '''
+    Annotate each bar in a bar chart with its height value, formatted according to the provided format string
+
+    Args:
+        ax (matplotlib.axes.Axes): The axes object containing the bars
+        bars (list of matplotlib.patches.Rectangle): The list of bar objects to annotate
+        fmt (str): A format string to format the height values (default: "{:.2f}")
+        offset (float): Vertical offset for the labels above the bars (default: 0.012)
+        fontsize (int): Font size for the labels (default: 12)
+        color (str or None): Optional color for the labels; if None, uses the bar's facecolor
+
+    Returns:
+        None
+    '''
     for bar in bars:
         h = bar.get_height()
         if h == 0:
@@ -88,6 +111,19 @@ def _bar_labels(ax, bars, fmt="{:.2f}", offset=0.012, fontsize=12, color=None):
         )
 
 def _hbar_labels(ax, bars, fmt="{:+.3f}", offset=0.006, fontsize=11):
+    '''
+    Annotate each horizontal bar in a bar chart with its width value, formatted according to the provided format string
+
+    Args:
+        ax (matplotlib.axes.Axes): The axes object containing the bars
+        bars (list of matplotlib.patches.Rectangle): The list of bar objects to annotate
+        fmt (str): A format string to format the width values (default: "{:+.3f}")
+        offset (float): Horizontal offset for the labels next to the bars (default: 0.006)
+        fontsize (int): Font size for the labels (default: 11)
+
+    Returns:
+        None
+    '''
     for bar in bars:
         w = bar.get_width()
         if w == 0:
@@ -100,14 +136,34 @@ def _hbar_labels(ax, bars, fmt="{:+.3f}", offset=0.006, fontsize=11):
                 color="seagreen" if w >= 0 else RED)
 
 def _suptitle_box(fig, text, fontsize=18):
-    """Titre principal dans un rectangle navy."""
+    '''
+    Add a centered suptitle above the figure with a navy rounded box background and white text for emphasis
+
+    Args:
+        fig (matplotlib.figure.Figure): The figure object to add the suptitle to
+        text (str): The text to display in the suptitle
+        fontsize (int): Font size for the suptitle text (default: 18)
+    
+    Returns:
+        None
+    '''
     fig.text(0.5, 1.02, text,
              ha="center", va="bottom",
              fontsize=fontsize, fontweight="bold", color="white",
              bbox=dict(boxstyle="round,pad=0.4", facecolor=NAVY, edgecolor="none"))
 
 def _title_box(ax, text, fontsize=None):
-    """Titre d'axe dans un encadré navy arrondi, texte blanc — même style que _suptitle_box."""
+    '''
+    Add a centered title above the axes with a navy rounded box background and white text for emphasis
+
+    Args:
+        ax (matplotlib.axes.Axes): The axes object to add the title to
+        text (str): The text to display in the title
+        fontsize (int or None): Font size for the title text; if None, uses the default value
+
+    Returns:
+        None
+    '''
     fs = fontsize or plt.rcParams.get("axes.titlesize", 16)
     ax.set_title(
         text,
@@ -119,9 +175,20 @@ def _title_box(ax, text, fontsize=None):
     )
 
 
-# ── 0. Macro F1 hero card (inspiré image 1) ──────────────────────────────
 def save_macro_hero(global_f1, per_group_f1, model_name, output_dir):
-    """ Grande carte : macro F1 en haut + barres par groupe (rouge si < 0.6). """
+    '''
+    Create and save a "hero" plot that prominently displays the global macro F1 score and a bar chart of per-group F1 scores, 
+    with color-coding to highlight underrepresented groups
+
+    Args:
+        global_f1 (float): The overall macro F1 score to display in the hero tile
+        per_group_f1 (dict): A dictionary mapping group names to their respective F1 scores
+        model_name (str): The name of the model for which to save the plot
+        output_dir (str): The directory where the plot will be saved
+
+    Returns:
+        None
+    '''
     _apply_style()
     os.makedirs(output_dir, exist_ok=True)
 
@@ -130,12 +197,10 @@ def save_macro_hero(global_f1, per_group_f1, model_name, output_dir):
     bar_colors = [RED if s < 0.6 else NAVY for s in scores]
 
     fig, (ax_hero, ax_bar) = plt.subplots(
-        2, 1, figsize=(14, 11),  # Agrandissement proportionnel
+        2, 1, figsize=(14, 11),
         gridspec_kw={"height_ratios": [1, 3]},
     )
     fig.subplots_adjust(hspace=0.4)
-
-    # ── Hero tile ──
     ax_hero.set_axis_off()
     ax_hero.set_facecolor(BG)
     ax_hero.text(0.5, 0.75, "Global Macro F1",
@@ -150,8 +215,6 @@ def save_macro_hero(global_f1, per_group_f1, model_name, output_dir):
     ax_hero.text(0.5, 0.32, f"{global_f1:.2f}",
                  ha="center", va="center", transform=ax_hero.transAxes,
                  fontsize=48, fontweight="bold", color="white", zorder=3)
-
-    # ── Bar chart ──
     x = np.arange(len(groups))
     bars = ax_bar.bar(x, scores, color=bar_colors, alpha=0.9, width=0.6,
                       zorder=3, edgecolor="white", linewidth=0.8)
@@ -177,15 +240,23 @@ def save_macro_hero(global_f1, per_group_f1, model_name, output_dir):
                 "* Values are illustrative — real results in Validation section",
                 ha="center", fontsize=10, color="#777777",
                 transform=ax_bar.transAxes, style="italic")
-
-    # dpi=300 assure une qualité cristal d'impression/présentation
     plt.savefig(os.path.join(output_dir, f"macro_hero_{model_name}.png"),
                 dpi=300, bbox_inches="tight", facecolor=BG)
     plt.close()
 
 
-# ── 1. Radar / Spider chart ───────────────────────────────────────────────
 def save_radar_chart(all_results, output_dir):
+    '''
+    Create and save a radar chart comparing the per-group F1 scores of different models, with each model represented by a 
+    distinct color and line style
+
+    Args:
+        all_results (dict): A dictionary where keys are model names and values are dictionaries mapping group names to their F1 scores
+        output_dir (str): The directory where the radar chart will be saved
+    
+    Returns:
+        None
+    '''
     _apply_style()
     os.makedirs(output_dir, exist_ok=True)
     N = len(GROUPS)
@@ -193,10 +264,8 @@ def save_radar_chart(all_results, output_dir):
 
     fig, ax = plt.subplots(figsize=(10, 10), subplot_kw=dict(polar=True))
     fig.patch.set_facecolor(BG)
-    
-    # On garde ton fond d'origine pour le panneau ici :
+
     ax.set_facecolor(PANEL)
-    
     ax.set_theta_offset(pi / 2)
     ax.set_theta_direction(-1)
     ax.set_xticks(angles[:-1])
@@ -211,12 +280,7 @@ def save_radar_chart(all_results, output_dir):
         values = [res.get(g, {}).get("f1", 0.0) for g in GROUPS] + \
                  [res.get(GROUPS[0], {}).get("f1", 0.0)]
         color = COLORS.get(name, "gray")
-        
-        # On trace la ligne (le contour)
         ax.plot(angles, values, color=color, linewidth=3.0, label=name, zorder=3)
-        
-        # ICI : L'appel à ax.fill(...) a été retiré.
-        # Les lignes se croiseront désormais sur le fond PANEL sans zone opaque au milieu.
 
     ax.legend(loc="upper right", bbox_to_anchor=(1.35, 1.15), fontsize=11)
     _title_box(ax, "Per-Group F1 — Radar", fontsize=16)
@@ -225,8 +289,17 @@ def save_radar_chart(all_results, output_dir):
                 dpi=300, bbox_inches="tight", facecolor=BG)
     plt.close()
 
-# ── 2. Fairness Gap ───────────────────────────────────────────────────────
 def save_fairness_gap(all_results, output_dir):
+    '''
+    Create and save a fairness gap chart comparing the per-group F1 scores of different models
+
+    Args:
+        all_results (dict): A dictionary where keys are model names and values are dictionaries mapping group names to their F1 scores
+        output_dir (str): The directory where the fairness gap chart will be saved
+
+    Returns:
+        None
+    '''
     _apply_style()
     os.makedirs(output_dir, exist_ok=True)
 
@@ -265,9 +338,18 @@ def save_fairness_gap(all_results, output_dir):
                 dpi=300, bbox_inches="tight", facecolor=BG)
     plt.close()
 
-
-# ── 3. FPR vs FNR par groupe ──────────────────────────────────────────────
 def save_fpr_fnr_per_group(df_eval, predictions_dict, output_dir):
+    '''
+    Create and save a scatter plot comparing the False Positive Rate (FPR) and False Negative Rate (FNR) for each group across different models
+
+    Args:
+        df_eval (pandas.DataFrame): The evaluation DataFrame containing true labels and group membership
+        predictions_dict (dict): A dictionary where keys are model names and values are arrays of predicted labels
+        output_dir (str): The directory where the scatter plot will be saved
+    
+    Returns:
+        None
+    '''
     _apply_style()
     os.makedirs(output_dir, exist_ok=True)
     fig, ax = plt.subplots(figsize=(11, 9))
@@ -291,7 +373,6 @@ def save_fpr_fnr_per_group(df_eval, predictions_dict, output_dir):
             fnr = fn / (fn + tp) if (fn + tp) > 0 else 0
             fprs.append(fpr); fnrs.append(fnr); labels.append(group)
 
-        # Augmentation taille des marqueurs à 140 pour aller avec les grandes polices
         ax.scatter(fprs, fnrs, color=color, s=140, alpha=0.9, label=name,
                    zorder=4, edgecolors="white", linewidths=0.8)
         for fpr, fnr, lbl in zip(fprs, fnrs, labels):
@@ -301,8 +382,6 @@ def save_fpr_fnr_per_group(df_eval, predictions_dict, output_dir):
 
     ax.axhline(0.5, color="#aaaaaa", linestyle="--", linewidth=1.2)
     ax.axvline(0.5, color="#aaaaaa", linestyle="--", linewidth=1.2)
-    
-    # Flèche d'origine restaurée et redimensionnée proprement
     ax.add_patch(mpatches.FancyArrowPatch(
         (0.08, 0.08), (0.01, 0.01),
         arrowstyle="-|>", color=NAVY, linewidth=1.8, mutation_scale=16, zorder=5))
@@ -319,9 +398,18 @@ def save_fpr_fnr_per_group(df_eval, predictions_dict, output_dir):
                 dpi=300, facecolor=BG)
     plt.close()
 
-
-# ── 4. Delta F1 vs Baseline ───────────────────────────────────────────────
 def save_delta_f1(all_results, baseline_name, output_dir):
+    '''
+    Create and save a horizontal bar chart showing the difference in F1 scores for each group between a baseline model and other models
+
+    Args:
+        all_results (dict): A dictionary where keys are model names and values are dictionaries mapping group names to their F1 scores
+        baseline_name (str): The name of the baseline model
+        output_dir (str): The directory where the bar chart will be saved
+
+    Returns:
+        None
+    '''
     _apply_style()
     os.makedirs(output_dir, exist_ok=True)
     baseline = all_results[baseline_name]
@@ -355,8 +443,17 @@ def save_delta_f1(all_results, baseline_name, output_dir):
     plt.close()
 
 
-# ── 5. Heatmap de co-occurrence ───────────────────────────────────────────
 def save_group_cooccurrence(df, output_dir):
+    '''
+    Create and save a heatmap showing the co-occurrence of group mentions in the dataset, where each cell represents the number of tweets that mention both groups corresponding to that cell
+
+    Args:
+        df (pandas.DataFrame): The DataFrame containing the dataset with a "targets" column that lists the groups mentioned in each tweet
+        output_dir (str): The directory where the heatmap will be saved
+
+    Returns:
+        None
+    '''
     _apply_style()
     os.makedirs(output_dir, exist_ok=True)
     n = len(GROUPS)
@@ -391,9 +488,19 @@ def save_group_cooccurrence(df, output_dir):
                 dpi=300, facecolor=BG)
     plt.close()
 
-
-# ── 6. Bias Amplification ─────────────────────────────────────────────────
 def save_bias_amplification(df_eval, predictions_dict, output_dir):
+    '''
+    Create and save a bar chart showing the bias amplification for each group across different models, where bias amplification is defined as 
+    the ratio of the predicted positive rate to the actual positive rate for each group
+
+    Args:
+        df_eval (pandas.DataFrame): The evaluation DataFrame containing true labels and group membership
+        predictions_dict (dict): A dictionary where keys are model names and values are lists of predicted labels for each group
+        output_dir (str): The directory where the bar chart will be saved
+
+    Returns:
+        None
+    '''
     _apply_style()
     os.makedirs(output_dir, exist_ok=True)
     fig, ax = plt.subplots(figsize=(15, 8))
@@ -402,14 +509,13 @@ def save_bias_amplification(df_eval, predictions_dict, output_dir):
     x = np.arange(len(GROUPS))
     width = 0.8 / len(predictions_dict)
 
-    # Une palette de bleus distincts, un par modèle
     blue_palette = [
-        "#1f4e8c",  # bleu foncé
-        "#2e86de",  # bleu vif
-        "#74b9ff",  # bleu clair
-        "#a8d8ea",  # bleu pâle
-        "#0a3d62",  # bleu nuit
-        "#48dbfb",  # bleu cyan
+        "#1f4e8c", 
+        "#2e86de", 
+        "#74b9ff",  
+        "#a8d8ea",  
+        "#0a3d62",  
+        "#48dbfb",  
     ]
 
     for i, (name, y_pred) in enumerate(predictions_dict.items()):
@@ -425,7 +531,6 @@ def save_bias_amplification(df_eval, predictions_dict, output_dir):
             ratios.append(pred_rate / actual_rate if actual_rate > 0 else 1.0)
 
         offset = (i - len(predictions_dict) / 2 + 0.5) * width
-        # Rouge si hors tolérance, sinon la teinte de bleu propre au modèle
         bar_colors = [RED if r > 1.2 or r < 0.8 else model_blue for r in ratios]
         bars = ax.bar(x + offset, ratios, width, label=name,
                       color=bar_colors, alpha=0.85,
@@ -449,8 +554,19 @@ def save_bias_amplification(df_eval, predictions_dict, output_dir):
                 dpi=300, facecolor=BG)
     plt.close()
 
-# ── 7. Training curves ────────────────────────────────────────────────────
 def save_training_curves(history, model_name, output_dir):
+    '''
+    Create and save a plot showing the training loss and validation macro F1 score over epochs for a given model, 
+    with markers indicating the best values
+
+    Args:
+        history (dict): A dictionary containing lists of "train_loss" and "val_f1
+        model_name (str): The name of the model for which to save the training curves
+        output_dir (str): The directory where the training curves plot will be saved
+
+    Returns:
+        None
+    '''
     _apply_style()
     os.makedirs(output_dir, exist_ok=True)
     color = COLORS.get(model_name, NAVY)
@@ -482,9 +598,18 @@ def save_training_curves(history, model_name, output_dir):
                 dpi=300, facecolor=BG)
     plt.close()
 
-
-# ── 8. Dataset distribution (inspiré image 2) ────────────────────────────
 def save_dataset_distribution(df, output_dir):
+    '''
+    Create and save a horizontal bar chart showing the distribution of posts per ethnic group in the dataset, with separate bars for hate and non-hate posts, 
+    and color-coding to indicate groups with fewer than 200 hate posts
+
+    Args:
+        df (pandas.DataFrame): The DataFrame containing the dataset with "label" and "targets" columns
+        output_dir (str): The directory where the dataset distribution plot will be saved
+
+    Returns:
+        None
+    '''
     _apply_style()
     os.makedirs(output_dir, exist_ok=True)
 
@@ -527,9 +652,18 @@ def save_dataset_distribution(df, output_dir):
                 dpi=300, facecolor=BG)
     plt.close()
 
-
-# ── 9. Group F1 comparison ────────────────────────────────────────────────
 def save_group_comparison(all_results, output_dir = "plots"):
+    '''
+    Create and save a grouped bar chart comparing the per-group F1 scores of different models, with each model represented by a distinct 
+    color and bars annotated with their F1 values
+
+    Args:
+        all_results (dict): A dictionary where keys are model names and values are dictionaries mapping group names to their respective F1 scores
+        output_dir (str): The directory where the group comparison plot will be saved
+    
+    Returns:
+        None
+    '''
     _apply_style()
     os.makedirs(output_dir, exist_ok=True)
 
@@ -561,9 +695,18 @@ def save_group_comparison(all_results, output_dir = "plots"):
                 dpi=300, facecolor=BG)
     plt.close()
 
-
-# ── 10. Macro F1 per epoch (toutes courbes) ───────────────────────────────
 def save_macro_f1_per_epoch(histories, output_dir):
+    '''
+    Create and save a line plot showing the validation macro F1 score over epochs for multiple models, 
+    with markers indicating the best epoch for each model
+
+    Args:
+        histories (dict): A dictionary where keys are model names and values are dictionaries containing a "val_f1" key with a list of macro F1 scores per epoch
+        output_dir (str): The directory where the macro F1 per epoch plot will be saved
+
+    Returns:
+        None
+    '''
     _apply_style()
     os.makedirs(output_dir, exist_ok=True)
     fig, ax = plt.subplots(figsize=(10, 10))
@@ -594,8 +737,20 @@ def save_macro_f1_per_epoch(histories, output_dir):
     plt.close()
 
 
-# ── 11. Weight distribution ───────────────────────────────────────────────
 def save_weight_distribution(df_train, weights, title, output_dir):
+    '''
+    Create and save a violin plot showing the distribution of sample weights for the training set, broken down by group, with annotations 
+    for median values
+
+    Args:
+        df_train (pandas.DataFrame): The training DataFrame containing "label" and "targets" columns
+        weights (numpy.ndarray): An array of sample weights corresponding to the training Data
+        title (str): The title for the plot
+        output_dir (str): The directory where the weight distribution plot will be saved
+
+    Returns:
+        None
+    '''
     _apply_style()
     os.makedirs(output_dir, exist_ok=True)
     data_per_group, labels = [], []
@@ -629,9 +784,16 @@ def save_weight_distribution(df_train, weights, title, output_dir):
     plt.savefig(os.path.join(output_dir, fname), dpi=300, facecolor=BG)
     plt.close()
 
-
-# ── 12. Macro F1 vs Per-Group F1 — tous modèles (grille) ─────────────────
 def save_macro_vs_group_f1(all_results, output_dir="plots"):
+    '''
+    Create and save a grouped bar chart comparing the per-group F1 scores of different models, with a dashed line indicating the global macro F1 score for each model, and color-coding to highlight groups that are underperforming relative to the macro F1
+    
+    Args:
+        all_results (dict): A dictionary where keys are model names and values are dictionaries mapping group names to their respective F1 scores, along with a "__macro_f1__" key for the global macro F1 score
+        output_dir (str): The directory where the macro vs group F1 plot will be saved  
+    Returns:
+        None
+    '''
     import math
     _apply_style()
     os.makedirs(output_dir, exist_ok=True)

@@ -1,20 +1,26 @@
 import json
 import random
 import re
-from collections import Counter
-
 import numpy as np
 import pandas as pd
+from collections import Counter
 
 from config import GROUPS, SEED
 
+#------------------------------------------------------------------
+# Sensible words linked to the groups that need to be protected.
+# These words will never be modified or removed during augmentation 
+# to avoid changing the sens or the target of these hate speeches.
 AUGMENT_PROTECTED_WORDS = {
     "african", "africa", "black", "asian", "jewish", "jew", "arab", "caucasian",
     "white", "hispanic", "latino", "latina", "indian", "islam", "muslim",
     "women", "woman", "female", "men", "man", "male", "lgbt", "gay", "lesbian",
     "trans", "immigrant", "migrant", "refugee",
 }
-
+#------------------------------------------------------------------
+# Substitution table of neutral synonyms used by synonym_replacement().
+# This set of words has been volontarily limited to words that are common and easily
+# interchangeable to not alter the global meaning of the text
 SYNONYM_MAP = {
     "really": ["very", "truly"],
     "very": ["really", "quite"],
@@ -59,13 +65,32 @@ SYNONYM_MAP = {
     "arent": ["aren't"],
     "wont": ["won't"],
 }
+#------------------------------------------------------------------
 
 
 def _protect_tokens(text):
+    '''
+    Tokenise the text while preserving the URLs, hashtags and ponctuation
+    
+    Args:
+        text (str): The input text to tokenise
+
+    Returns:
+        list[str]: List of tokens (words, punctuation marks, URLs, @mentions, #hashtags)    
+    '''
     return re.findall(r"https?://\S+|@\w+|#\w+|\w+(?:'\w+)?|[^\w\s]", str(text), flags=re.UNICODE)
 
 
 def _detokenize(tokens):
+    '''
+    Detokenise the text while preserving the spacing and punctuation
+    
+    Args:
+        tokens (list[str]): List of tokens to detokenise
+
+    Returns:
+        str: The detokenised text
+    '''
     text = " ".join(tokens)
     text = re.sub(r"\s+([.,!?;:%])", r"\1", text)
     text = re.sub(r"([({\[])\s+", r"\1", text)
@@ -75,6 +100,15 @@ def _detokenize(tokens):
 
 
 def _is_protected_token(tok):
+    '''
+    Check if a token is protected (URLs, hashtags, ponctuation, short words, or words in the protected list)
+
+    Args:
+        tok (str): The token to check
+
+    Returns:
+        bool: True or False depending on whether the token is protected or not
+    '''
     low = tok.lower().strip()
     return (
         low in AUGMENT_PROTECTED_WORDS
@@ -85,6 +119,16 @@ def _is_protected_token(tok):
 
 
 def _match_case(src, replacement):
+    '''
+    Match the case of the replacement word to the source word (all upper, capitalized, or lower)
+
+    Args:
+        src (str): The source word
+        replacement (str): The replacement word
+
+    Returns:
+        str: The replacement word with the same case as the source word
+    '''
     if src.isupper():
         return replacement.upper()
     if src[:1].isupper():
@@ -93,6 +137,17 @@ def _match_case(src, replacement):
 
 
 def synonym_replacement(tokens, rng, max_replacements=2):
+    '''
+    Replace some words in the text with their synonyms from the SYNONYM_MAP while preserving the case and avoiding protected tokens
+
+    Args:
+        tokens (list[str]): List of tokens to augment
+        rng (random.Random): The random generator to use for reproducibility
+        max_replacements (int): The maximum number of words to replace
+
+    Returns:
+        list[str]: The augmented list of tokens with some words replaced by their synonyms
+    '''
     out = tokens[:]
     candidates = [
         i for i, tok in enumerate(out)
@@ -107,11 +162,33 @@ def synonym_replacement(tokens, rng, max_replacements=2):
 
 
 def random_deletion(tokens, rng, p=0.07):
+    '''
+    Randomly delete some words from the text with a probability p while avoiding protected tokens and ensuring that at least 65% of the original tokens remain
+
+    Args:
+        tokens (list[str]): List of tokens to augment
+        rng (random.Random): The random generator to use for reproducibility
+        p (float): The probability of deleting each non-protected token
+    
+    Returns:
+        list[str]: The augmented list of tokens with some words randomly deleted
+    '''
     out = [tok for tok in tokens if _is_protected_token(tok) or rng.random() > p]
     return out if len(out) >= max(3, int(0.65 * len(tokens))) else tokens[:]
 
 
 def random_swap(tokens, rng, n_swaps=1):
+    '''
+    Randomly swap adjacent words in the text n_swaps times while avoiding protected tokens
+
+    Args:
+        tokens (list[str]): List of tokens to augment
+        rng (random.Random): The random generator to use for reproducibility
+        n_swaps (int): The number of adjacent swaps to perform
+
+    Returns:
+        list[str]: The augmented list of tokens with some adjacent words randomly swapped
+    '''
     out = tokens[:]
     candidates = [
         i for i in range(len(out) - 1)
@@ -126,6 +203,16 @@ def random_swap(tokens, rng, n_swaps=1):
 
 
 def punctuation_noise(tokens, rng):
+    '''
+    Randomly add or modify punctuation at the end of the text with a 50% chance
+
+    Args:
+        tokens (list[str]): List of tokens to augment
+        rng (random.Random): The random generator to use for reproducibility
+    
+    Returns:
+        list[str]: The augmented list of tokens with some punctuation noise added at the end
+    '''
     out = tokens[:]
     if out and rng.random() < 0.5:
         if out[-1] in [".", "!", "?"]:
@@ -136,6 +223,17 @@ def punctuation_noise(tokens, rng):
 
 
 def light_char_noise(tokens, rng, p=0.03):
+    '''
+    Randomly swap or drop a character in some words with a probability p while avoiding protected tokens and short words
+
+    Args:
+        tokens (list[str]): List of tokens to augment
+        rng (random.Random): The random generator to use for reproducibility
+        p (float): The probability of adding character noise to each non-protected token
+
+    Returns:
+        list[str]: The augmented list of tokens with some characters randomly swapped or dropped
+    '''
     out = []
     for tok in tokens:
         if _is_protected_token(tok) or len(tok) < 5 or rng.random() > p:
@@ -153,6 +251,17 @@ def light_char_noise(tokens, rng, p=0.03):
 
 
 def augment_text(text, rng, methods=("synonym", "delete", "swap", "punct", "char")):
+    '''
+    Augment the text by applying one of the specified methods randomly while ensuring that the augmented text is different from the original and that protected tokens are not modified
+
+    Args:
+        text (str): The input text to augment
+        rng (random.Random): The random generator to use for reproducibility
+        methods (tuple[str]): The augmentation methods to choose from ("synonym", "delete", "swap", "punct", "char")
+    
+    Returns:
+        tuple[str, str]: The augmented text and the method used for augmentation
+    '''
     tokens = _protect_tokens(text)
     if len(tokens) < 4:
         return str(text), "none_short"
@@ -183,6 +292,20 @@ def augment_text(text, rng, methods=("synonym", "delete", "swap", "punct", "char
 
 
 def _do_augment(df_train, targets_to_augment, aug_factor, methods, seed, save_report_path):
+    '''
+    Apply augmentation to the training data based on the specified methods and factors.
+
+    Args:
+        df_train (pd.DataFrame): The original training DataFrame with columns "text", "label", "targets"
+        targets_to_augment (set[str]): The set of target groups to augment
+        aug_factor (int): The number of augmented samples to generate per original sample for the targeted
+        methods (tuple[str]): The augmentation methods to use ("synonym", "delete", "swap", "punct", "char", "combo")
+        seed (int): The random seed for reproducibility
+        save_report_path (str or None): The path to save the augmentation report as a JSON
+
+    Returns:
+        pd.DataFrame: The augmented training DataFrame with new samples added and shuffled
+    '''
     rng = random.Random(seed)
     group_counts_before = {
         g: int(((df_train["label"] == 1) & df_train["targets"].apply(lambda t: g in t)).sum())
@@ -257,6 +380,20 @@ def augment_training_data(
     methods=("synonym", "delete", "swap", "punct", "char", "combo"),
     save_report_path=None,
 ):
+    '''
+    Augment the training data by applying augmentation methods to samples belonging to underrepresented target groups based on a minimum sample threshold
+
+    Args:
+        df_train (pd.DataFrame): The original training DataFrame with columns
+        aug_factor (int): The number of augmented samples to generate per original sample for the targeted groups
+        min_group_samples (int): The minimum number of hate samples per group to avoid augmentation
+        seed (int): The random seed for reproducibility
+        methods (tuple[str]): The augmentation methods to use ("synonym", "delete", "swap", "punct", "char", "combo")
+        save_report_path (str or None): The path to save the augmentation report as a JSON
+
+    Returns:
+        pd.DataFrame: The augmented training DataFrame with new samples added and shuffled
+    '''
     group_counts = {
         g: int(((df_train["label"] == 1) & df_train["targets"].apply(lambda t: g in t)).sum())
         for g in GROUPS
@@ -278,6 +415,20 @@ def augment_training_data_disparity(
     methods=("synonym", "delete", "swap", "punct", "char", "combo"),
     save_report_path=None,
 ):
+    '''
+    Augment the training data by applying augmentation methods to samples belonging to target groups that have a high disparity between the number of normal and hate samples based on a specified threshold
+
+    Args:
+        df_train (pd.DataFrame): The original training DataFrame with columns "text", "label", "targets"
+        aug_factor (int): The number of augmented samples to generate per original sample for the targeted groups
+        disparity_threshold (float): The minimum normal/hate ratio for a group to be targeted for augmentation
+        seed (int): The random seed for reproducibility
+        methods (tuple[str]): The augmentation methods to use ("synonym", "delete", "swap", "punct", "char", "combo")
+        save_report_path (str or None): The path to save the augmentation report as a JSON
+    
+    Returns:
+        pd.DataFrame: The augmented training DataFrame with new samples added and shuffled
+    '''
     hate_counts = {
         g: max(1, ((df_train["label"] == 1) & df_train["targets"].apply(lambda t: g in t)).sum())
         for g in GROUPS

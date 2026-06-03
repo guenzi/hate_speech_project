@@ -7,14 +7,14 @@ import numpy as np
 import pandas as pd
 import joblib
 import torch
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import classification_report, f1_score
 from sklearn.pipeline import Pipeline
 from sklearn.svm import LinearSVC
 from transformers import AutoTokenizer
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
-
 from augment import augment_training_data, augment_training_data_disparity
 from config import MODEL_NAME, SEED, get_device
 from dataset import load_data, make_loaders, split_data
@@ -33,6 +33,15 @@ warnings.filterwarnings("ignore")
 
 
 def setup_dirs(base_dir):
+    '''
+    Set up the necessary directory structure for storing outputs such as plots, JSON files, CSV files, and model checkpoints
+
+    Args:
+        base_dir (str): The base directory under which all output subdirectories will be created
+
+    Returns:
+        dict: A dictionary containing the paths to the created subdirectories for plots, JSON files, CSV files, and checkpoints
+    '''
     paths = {
         "base": base_dir,
         "plots": os.path.join(base_dir, "plots"),
@@ -46,6 +55,16 @@ def setup_dirs(base_dir):
 
 
 def run_preprocess(args, paths):
+    '''
+    Run the preprocessing step by loading the raw dataset, cleaning the text, splitting into train/val/test sets, and saving the processed data and distribution plots
+
+    Args:
+        args: The command-line arguments containing the data path and output directory
+        paths: A dictionary of paths for storing outputs (plots, JSON, CSV, checkpoints)
+    
+    Returns:
+        None
+    '''
     print("\n=== [STEP] PREPROCESS ===")
     df = load_data(args.data_path)
     df_train, df_val, df_test = split_data(df)
@@ -58,6 +77,18 @@ def run_preprocess(args, paths):
 
 
 def run_train(args, paths, device):
+    '''
+    Run the training step by loading the processed datasets, training multiple models (SVM baseline, BERTweet baseline, 
+    weighted BERTweet, augmented BERTweet, and disparity-aware BERTweet), saving model checkpoints and training histories
+
+    Args:
+        args: The command-line arguments containing training hyperparameters and augmentation settings
+        paths: A dictionary of paths for storing outputs (plots, JSON, CSV, checkpoints)
+        device: The device to run the training on (e.g., 'cuda' or 'cpu')
+
+    Returns:
+        None
+    '''
     print("\n=== [STEP] TRAINING ===")
     df_train = load_data(os.path.join(paths["csv"], "train.csv"))
     df_val = load_data(os.path.join(paths["csv"], "val.csv"))
@@ -114,6 +145,18 @@ def run_train(args, paths, device):
 
 
 def run_eval(args, paths, device):
+    '''
+    Run the evaluation step by loading the test dataset, making predictions with each trained model, evaluating performance per group 
+    and overall macro F1, and saving results and predictions to JSON files
+
+    Args:
+        args: The command-line arguments containing training hyperparameters and augmentation settings
+        paths: A dictionary of paths for storing outputs (plots, JSON, CSV, checkpoints)
+        device: The device to run the evaluation on (e.g., 'cuda' or 'cpu')
+    
+    Returns:
+        None
+    '''
     print("\n=== [STEP] EVALUATION ===")
     df_test = load_data(os.path.join(paths["csv"], "test.csv"))
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False)
@@ -137,7 +180,6 @@ def run_eval(args, paths, device):
             continue
 
         all_group_results[name] = evaluate_per_group(df_test, y_pred)
-        # Stocke le vrai macro F1 binaire (hate vs. not hate) sur le test set
         all_group_results[name]["__macro_f1__"] = f1_score(
             df_test["label"].values, y_pred, average="macro"
         )
@@ -150,6 +192,17 @@ def run_eval(args, paths, device):
 
 
 def run_plot(args, paths):
+    '''
+    Run the plotting step by loading evaluation results and predictions, and generating various plots for performance comparison, 
+    fairness analysis, and training curves
+
+    Args:
+        args: The command-line arguments containing training hyperparameters and augmentation settings
+        paths: A dictionary of paths for storing outputs (plots, JSON, CSV, checkpoints)
+
+    Returns:
+        None
+    '''
     with open(os.path.join(paths["json"], "results.json"), "r") as f:
         all_group_results = json.load(f)
     with open(os.path.join(paths["json"], "predictions.json"), "r") as f:
