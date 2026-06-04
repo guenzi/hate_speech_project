@@ -1,8 +1,9 @@
 import numpy as np
-import matplotlib.pyplot as pltFixé
+import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 import matplotlib.patheffects as pe
 import os
+import matplotlib.patches as mpatches
 from math import pi
 from sklearn.metrics import confusion_matrix
 from config import GROUPS
@@ -10,7 +11,7 @@ from config import GROUPS
 NAVY   = "#1a2e6e"
 RED    = "#cc2233"
 SILVER = "#b0b8c9"
-BG     = "#FFF6EB"
+BG     = "#FFFFFF"
 PANEL  = "#f5f5f5"
 
 COLORS = {

@@ -56,7 +56,7 @@ def setup_dirs(base_dir):
 
 def run_preprocess(args, paths):
     '''
-    Run the preprocessing step by loading the raw dataset, cleaning the text, splitting into train/val/test sets, and saving the processed data and distribution plots
+    Run the preprocessing step: delegates loading and cleaning to load_data(), splits into train/val/test sets, and saves the processed data and distribution plots
 
     Args:
         args: The command-line arguments containing the data path and output directory

@@ -4,6 +4,8 @@ import re
 import pandas as pd
 
 # Define the set of racial targets to identify in the HateXplain dataset
+# Note: RACIAL_TARGETS is redefined here so that preprocess.py can be run as
+# a standalone script without depending on the rest of the project
 RACIAL_TARGETS = {"African", "Asian", "Jewish", "Arab", "Caucasian", "Hispanic", "Indian", "Islam"}
 
 
@@ -30,6 +32,14 @@ def load_hatexplain(path: str) -> pd.DataFrame:
     '''
     Load and preprocess the HateXplain dataset from the specified JSON file path, extracting relevant information 
     and filtering for racist and normal posts
+
+    Labelling logic:
+        - label = 1 (racist hate speech) if the majority annotator label is "hatespeech" AND at least one
+        racial target is present
+        - label = 0 (normal) if the majority label is "normal"
+        - All other posts (offensive but not racial, or undecided) are dropped
+
+    Filtering: only posts targetting exactly one racial group are kept to avoid ambiguity during pre-group fairness evaluation
 
     Args:
         path (str): The file path to the HateXplain JSON dataset
@@ -59,11 +69,12 @@ def load_hatexplain(path: str) -> pd.DataFrame:
     df = df[(df["racist"] == 1) | (df["majority_label"] == "normal")].copy()
     df["label"] = df["racist"]
 
-    df = df[df["targets"].apply(lambda t: len(set(t) & RACIAL_TARGETS) == 1)].reset_index(drop=True) # keep only mono ethnie
-
+    df = df[df["targets"].apply(lambda t: len(set(t) & RACIAL_TARGETS) == 1)].reset_index(drop=True)
     return df[["id", "text", "label", "targets"]]
 
 if __name__ == "__main__":
+    # Run as a standalone script to generate hatexplain.csv from the raw JSON
+    # Skips processing if the output file already exists
     output_path = "../data/final_datasets/hatexplain.csv"
     if os.path.exists(output_path):
         print(f"Dataset already exists at {output_path}, skipping.")

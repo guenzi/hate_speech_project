@@ -29,6 +29,38 @@ def evaluate_per_group(df_eval, y_pred):
         }
     return results
 
+def compute_sample_weights(df_train):
+    '''
+    Compute sample weights based on the frequency of each group in the training data.
+    The weight for each group is calculated as the ratio of the maximum group count to the count
+    of that group, ensuring that groups with fewer samples receive higher weights.
+
+    Args:
+        df_train (pd.DataFrame): DataFrame containing the training data with columns "targets" and "label"
+
+    Returns:
+        np.array: An array of sample weights corresponding to each row in df_train
+    '''
+    group_counts = {
+        g: max(1, df_train["targets"].apply(lambda t: g in t).sum())
+        for g in GROUPS
+    }
+
+    max_count = max(group_counts.values())
+    group_weights = {g: max_count / c for g, c in group_counts.items()}
+
+    print("\nGroup weights (count-based):")
+    for g, w in sorted(group_weights.items(), key=lambda x: -x[1]):
+        print(f"  {g:<12} count={group_counts[g]:4d}  weight={w:.2f}")
+
+    def get_weight(row):
+        if row["label"] == 0:
+            return 1.0
+        targets = [t for t in row["targets"] if t in group_weights]
+        return max((group_weights[t] for t in targets), default=1.0)
+
+    return df_train.apply(get_weight, axis=1).values
+
 def print_group_results(results, model_name=""):
     '''
     Print the F1 scores for each group in a sorted manner
@@ -63,31 +95,6 @@ def get_weight(row):
     targets = [t for t in row["targets"] if t in group_weights]
     return max((group_weights[t] for t in targets), default=1.0)
 
-    
-def compute_sample_weights(df_train):
-    '''
-    Compute sample weights based on the frequency of each group in the training data.
-    The weight for each group is calculated as the ratio of the maximum group count to the count
-    of that group, ensuring that groups with fewer samples receive higher weights.
-
-    Args:
-        df_train (pd.DataFrame): DataFrame containing the training data with columns "targets" and "label"
-
-    Returns:
-        np.array: An array of sample weights corresponding to each row in df_train
-    '''
-    group_counts = {
-        g: max(1, df_train["targets"].apply(lambda t: g in t).sum())
-        for g in GROUPS
-    }
-    max_count = max(group_counts.values())
-    group_weights = {g: max_count / c for g, c in group_counts.items()}
-
-    print("\nGroup weights (count-based):")
-    for g, w in sorted(group_weights.items(), key=lambda x: -x[1]):
-        print(f"  {g:<12} count={group_counts[g]:4d}  weight={w:.2f}")
-
-    return df_train.apply(get_weight, axis=1).values
 
 def compute_disparity_weights(df_train):
     '''

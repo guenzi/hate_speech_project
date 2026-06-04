@@ -1,7 +1,11 @@
 import torch
 
 #------------------------------------------------------------------
-# Configuration of everything for the hate speech detection of this project
+# GROUPS / RACIAL_TARGETS : ethnic groups tracked for fairness evaluation.
+# -  GROUPS is an ordered list used for plots and iteration
+# -  RACIAL_TARGETS is a set used for fast membership tests during data loading
+# MODEL_NAME : HuggingFace identifier for BERTweet (RoBERTa trained on tweets).
+# SEED : global random seed for reproducibility (train/val/test splits, augmentation).
 GROUPS = ["African", "Asian", "Jewish", "Arab", "Caucasian", "Hispanic", "Indian", "Islam"]
 RACIAL_TARGETS = {"African", "Asian", "Jewish", "Arab", "Caucasian", "Hispanic", "Indian", "Islam"}
 MODEL_NAME = "vinai/bertweet-base"
