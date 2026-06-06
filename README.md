@@ -87,9 +87,9 @@ python3 main.py \
 
 1.  **SVM Baseline** — Linear baseline model utilizing TF-IDF vectorization.
 2.  **BERTweet Baseline** — Fine-tuned BERTweet model without any class balancing or sample weighting.
-3.  **BERTweet Weighted** — Training with FocalLoss and sample weights based on inverse group counts.
-4.  **BERTweet Weighted + Aug** — Same setup combined with data augmentation on minority groups (groups with fewer than 200 hate samples).
-5.  **BERTweet + Disparity** — Training combining specific weights and targeted data augmentation on disparities (groups with a high normal/hate ratio greater than 1.5).
+3.  **BERTweet Weighted** — Training with FocalLoss and sample weights.
+4.  **BERTweet Weighted + Aug** — Same setup combined with data augmentation on minority groups.
+5.  **BERTweet + Disparity** — Training combining specific weights and targeted data augmentation on disparities.
 
 ### Output Directory Structure (`--output_dir`)
 
@@ -100,9 +100,6 @@ results/
   plots/                                — Evaluation graphics and fairness analysis plots
     dataset_distribution.png            — Post distribution across ethnic groups
     bertweet_baseline_curves.png        — Learning curves for the baseline model
-    bertweet_weighted_curves.png        — Learning curves for the weighted model
-    bertweet_weighted_aug_curves.png    — Learning curves with data augmentation
-    bertweet_disparity_curves.png       — Learning curves for the disparity-aware model
     group_f1_comparison.png             — Global F1-score comparison per group
     macro_vs_group_f1.png               — Macro score vs per-ethnic group score
     bias_amplification.png              — Bias amplification visualization
