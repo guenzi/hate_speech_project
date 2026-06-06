@@ -787,15 +787,25 @@ def save_weight_distribution(df_train, weights, title, output_dir):
 
 def save_macro_vs_group_f1(all_results, output_dir="plots"):
     '''
-    Create and save a grouped bar chart comparing the per-group F1 scores of different models, with a dashed line indicating the global macro F1 score for each model, and color-coding to highlight groups that are underperforming relative to the macro F1
+    Create and save a grouped bar chart comparing the per-group F1 scores of different models, 
+    with a dashed line indicating the global macro F1 score for each model.
+    Highlights in green the bar of the model that achieves the maximum F1 score for each specific ethnic group.
     
     Args:
-        all_results (dict): A dictionary where keys are model names and values are dictionaries mapping group names to their respective F1 scores, along with a "__macro_f1__" key for the global macro F1 score
+        all_results (dict): A dictionary where keys are model names and values are dictionaries 
+                            mapping group names to their respective F1 scores, along with a 
+                            "__macro_f1__" key for the global macro F1 score
         output_dir (str): The directory where the macro vs group F1 plot will be saved  
     Returns:
         None
     '''
+    tolerance = 0.005
+
     import math
+    import os
+    import numpy as np
+    import matplotlib.pyplot as plt
+
     _apply_style()
     os.makedirs(output_dir, exist_ok=True)
 
@@ -804,19 +814,49 @@ def save_macro_vs_group_f1(all_results, output_dir="plots"):
     ncols = 3
     nrows = math.ceil(n / ncols)
 
+    # 1. Étape préliminaire : Trouver le score max pour chaque groupe ethnique à travers TOUS les modèles
+    max_f1_per_group = {g: -1.0 for g in GROUPS}
+    for name in model_names:
+        res = all_results[name]
+        for g in GROUPS:
+            score = res.get(g, {}).get("f1", 0.0)
+            if score > max_f1_per_group[g]:
+                max_f1_per_group[g] = score
+
+    # Configuration de la figure Matplotlib
     fig, axes = plt.subplots(nrows, ncols, figsize=(7 * ncols, 6 * nrows), sharey=True)
     fig.patch.set_facecolor(BG)
 
-    axes_flat = axes.flatten() if n > 1 else [axes]
+    # Gestion du cas où il n'y a qu'un seul modèle (pour éviter que .flatten() plante)
+    if n > 1:
+        axes_flat = axes.flatten()
+    else:
+        axes_flat = [axes] if not isinstance(axes, np.ndarray) else axes.flatten()
 
+    shades_of_blue = ["#0a2240", "#1c4273", "#2e62a6", "#4a85c9", "#70abeb", "#99ccff"]
+
+    # 2. Traçage des graphiques
     for i, name in enumerate(model_names):
         ax = axes_flat[i]
         res       = all_results[name]
         f1_scores = [res.get(g, {}).get("f1", 0.0) for g in GROUPS]
         macro_f1  = res.get("__macro_f1__", np.mean(f1_scores))
 
-        bar_colors = [RED if s < macro_f1 else COLORS.get(name, NAVY)
-                      for s in f1_scores]
+        bar_colors = []
+        for g_idx, g in enumerate(GROUPS):
+            s = f1_scores[g_idx]
+            
+            # Si c'est le score maximum pour ce groupe parmi tous les modèles -> VERT
+            # (Utilisation d'une petite tolérance pour les arrondis flottants si nécessaire)
+            if abs(s - max_f1_per_group[g]) < 1e-6:
+                bar_colors.append("#1a7a4a")
+            else:
+                # Sinon, application de votre logique originale avec le dégradé de bleu
+                gap = macro_f1 - s
+                if gap < 0: 
+                    gap = 0 # Évite les index négatifs si le score est supérieur à la macro F1
+                idx = min(int(gap * 10), len(shades_of_blue) - 1)
+                bar_colors.append(shades_of_blue[idx])
 
         x    = np.arange(len(GROUPS))
         bars = ax.bar(x, f1_scores, color=bar_colors, alpha=0.88, width=0.6,
@@ -838,10 +878,11 @@ def save_macro_vs_group_f1(all_results, output_dir="plots"):
         if i % ncols == 0:
             ax.set_ylabel("F1 Score")
 
+    # Masquer les sous-graphiques vides
     for j in range(n, nrows * ncols):
         axes_flat[j].set_visible(False)
 
-    _suptitle_box(fig, "Macro F1 vs Per-Group F1 — All Models")
+    _suptitle_box(fig, "Macro F1 vs Per-Group F1 — All Models (Best group scores in Green)")
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "macro_vs_group_f1.png"),
                 dpi=300, bbox_inches="tight", facecolor=BG)
