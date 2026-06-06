@@ -4,68 +4,42 @@
 
 Detection of racism in tweets using BERTweet, with a focus on inter-group bias: does the model perform equally well across all ethnic groups? We study this bias and mitigate it via weighted loss and data augmentation.
 
----
+------------------------------------------------------------------------
 
 ## Setup
 
-Clone the repository locally and on the cluster:
+Clone the repository locally
 
-```bash
+``` bash
 git clone https://github.com/guenzi/hate_speech_project.git
 cd hate_speech_project
 ```
 
-The pipeline runs on the **EPFL RCP cluster via RunAI** using a pre-built Docker image that includes all dependencies. You do not need to install anything locally.
+Install the required packages listed in the `requirements.txt` file:
 
-Docker image: `registry.rcp.epfl.ch/ee-559-guenzi/my-toolbox:v0.3`
-
-The `requirements.txt` lists the packages included in the image for reference only.
-
----
-
-## Docker Image
-
-The `Dockerfile` at the root of the repository defines the image. It has two modes:
-
-- **Lightweight update** (default) — builds on top of the previous image. Only the new dependencies are uploaded (~MB). Use this when bumping the version after changing `requirements.txt`.
-- **Full rebuild** — rebuilds everything from the course base image (~5GB upload). Instructions are in the commented block at the top of the Dockerfile. Use this only when changing system-level dependencies (Python version, apt packages, etc.).
-
-### Build and push a new version
-
-```bash
-docker login registry.rcp.epfl.ch
-
-# Replace vPREV with the previous version and vNEW with the new version
-docker build \
-  --platform linux/amd64 \
-  --build-arg BASE=registry.rcp.epfl.ch/ee-559-guenzi/my-toolbox:vPREV \
-  -t registry.rcp.epfl.ch/ee-559-guenzi/my-toolbox:vNEW .
-
-docker push registry.rcp.epfl.ch/ee-559-guenzi/my-toolbox:vNEW
+``` bash
+pip install -r requirements.txt
 ```
 
-The Dockerfile never needs to be edited when bumping versions. Only update the `--image` flag in your RunAI submit commands.
+------------------------------------------------------------------------
 
----
+## Folder Structure
 
-## Repository Structure
-
-```
+```         
 src/
-  preprocess.py     — tweet cleaning and label generation from HateXplain
-  config.py         — shared constants (GROUPS, MODEL_NAME, SEED, get_device)
+  augment.py        — Data augmentation (synonym, deletion, swap, character/punctuation noise)
+  config.py         — Shared constants (GROUPS, MODEL_NAME, SEED, get_device)
   dataset.py        — TweetDataset, make_loaders, load_data, split_data
-  model.py          — FocalLoss, train_bertweet, predict, save_checkpoint
   evaluate.py       — evaluate_per_group, compute_sample_weights, compute_disparity_weights
-  augment.py        — data augmentation (synonym, deletion, swap, noise)
-  plots.py          — training curves and group F1 comparison plots
+  model.py          — FocalLoss, train_bertweet, predict, save_checkpoint, load_checkpoint
+  plots.py          — Generation of all evaluation graphics and training curves
 
-main.py             — pipeline orchestrator
-Dockerfile          — image definition
-requirements.txt    — dependencies
+main.py             — Pipeline orchestrator (CLI entrypoint)
+README.md           — Project documentation
+requirements.txt    — Dependencies list
 ```
 
----
+------------------------------------------------------------------------
 
 ## Data
 
@@ -74,67 +48,92 @@ requirements.txt    — dependencies
 Only mono-ethnic posts are kept (posts targeting exactly one racial group), which ensures clean per-group evaluation.
 
 | Dataset | Source | Role | Label |
-|---|---|---|---|
+|----|----|----|----|
 | **HateXplain** | [GitHub](https://github.com/hate-alert/HateXplain) | Train / Val / Test | hatespeech + racial target → 1, normal → 0 |
 
----
+------------------------------------------------------------------------
 
 ## How to Run
 
-### Step 1 — Preprocess (once, or after any change to preprocess.py)
+The main script `main.py` orchestrates the entire pipeline using the `--mode` argument.
 
-```bash
-cd src
-python3 preprocess.py
+### Step 1 — Preprocess (base datasets generation)
+
+You can run the preprocessing step standalone to clean tweets and generate the training, validation, and test CSV files:
+
+``` bash
+python3 main.py \
+  --mode preprocess \
+  --data_path data/HateXplain.json \
+  --output_dir results
 ```
 
-Generates `data/final_datasets/hatexplain.csv`. Skipped automatically if the file already exists.
+> **Note:** Alternatively, you can directly run the standalone script `python3 src/preprocess.py` to generate `data/final_datasets/hatexplain.csv`.
 
-### Step 2 — Full pipeline
+### Step 2 — Full pipeline Execution (Preprocess, Train, Evaluate and Plot)
 
-```bash
+To run the entire pipeline at once (Preprocess + Train + Eval + Plot):
+
+``` bash
 python3 main.py \
-  --data_path data/final_datasets/hatexplain.csv \
+  --mode all \
+  --data_path data/HateXplain.json \
   --output_dir results \
   --epochs 5 \
   --patience 2
 ```
 
-Each run creates a timestamped subdirectory (e.g. `results/20260506_143012/`) so previous results are never overwritten.
+### Models trained during the pipeline
 
-### Pipeline steps
+1.  **SVM Baseline** — Linear baseline model utilizing TF-IDF vectorization.
+2.  **BERTweet Baseline** — Fine-tuned BERTweet model without any class balancing or sample weighting.
+3.  **BERTweet Weighted** — Training with FocalLoss and sample weights based on inverse group counts.
+4.  **BERTweet Weighted + Aug** — Same setup combined with data augmentation on minority groups (groups with fewer than 200 hate samples).
+5.  **BERTweet + Disparity** — Training combining specific weights and targeted data augmentation on disparities (groups with a high normal/hate ratio greater than 1.5).
 
-1. **SVM + TF-IDF** — baseline
-2. **BERTweet Baseline** — fine-tuned BERTweet, no balancing
-3. **BERTweet Weighted** — focal loss + per-group sample weights (count-based)
-4. **BERTweet Weighted + Aug** — same + data augmentation on underrepresented groups
-5. **BERTweet + Disparity** — disparity-aware weights and augmentation (targets groups where normal/hate ratio is high)
+### Output Directory Structure (`--output_dir`)
 
-### Output per run
+The artifacts generated by the pipeline are organized directly within the following subdirectories of your configured output directory:
 
-```
-results/<timestamp>/
-  plots/
-    dataset_distribution.png
-    bertweet_baseline_curves.png
-    bertweet_weighted_curves.png
-    bertweet_weighted_plusaug_curves.png
-    bertweet_plus_disparity_curves.png
-    group_f1_comparison.png
+```         
+results/
+  plots/                                — Evaluation graphics and fairness analysis plots
+    dataset_distribution.png            — Post distribution across ethnic groups
+    bertweet_baseline_curves.png        — Learning curves for the baseline model
+    bertweet_weighted_curves.png        — Learning curves for the weighted model
+    bertweet_weighted_aug_curves.png    — Learning curves with data augmentation
+    bertweet_disparity_curves.png       — Learning curves for the disparity-aware model
+    group_f1_comparison.png             — Global F1-score comparison per group
+    macro_vs_group_f1.png               — Macro score vs per-ethnic group score
+    bias_amplification.png              — Bias amplification visualization
+    fairness_gap.png                    — Assessment of inter-group disparities
+    fpr_fnr_scatter.png                 — Error profile (FPR vs FNR scatter plot)
+    radar_f1.png                        — Radar chart showcasing F1-scores
+    delta_f1_vs_baseline.png            — Performance evolution relative to the baseline
+    group_cooccurrence.png              — Co-occurrence matrix of group mentions
+    count-based_weight_dist.png         — Distribution of count-based sample weights
+    disparity-aware_weight_dist.png     — Distribution of disparity-aware weights
+    macro_f1_per_epoch.png              — Validation F1 trajectory comparison
   json/
-    results.json
-    augmentation_report.json
-    augmentation_disparity_report.json
-  csv/                          — gitignored
-    train_augmented.csv
-    train_disparity_augmented.csv
-  checkpoints/                  — gitignored
+    histories.json                      — Loss and metrics history per epoch
+    results.json                        — Detailed F1-scores per group for each model
+    predictions.json                    — Raw model predictions list on the test set
+  csv/
+    train.csv                           — Cleaned training dataset
+    val.csv                             — Cleaned validation dataset
+    test.csv                            — Cleaned test dataset
+  checkpoints/
+    svm.joblib                          — Saved SVM pipeline
+    bertweet_baseline.pt                — Weights of the baseline BERTweet model
+    bertweet_weighted.pt                — Weights of the BERTweet model with weighted Focal Loss
+    bertweet_weighted_aug.pt            — Weights of the model with weights + augmentation
+    bertweet_disparity.pt               — Weights of the disparity-oriented group model
 ```
 
 ### Arguments
 
 | Argument | Default | Description |
-|---|---|---|
+|----|----|----|
 | `--epochs` | 5 | Max training epochs |
 | `--patience` | 2 | Early stopping patience |
 | `--batch_size` | 16 | Batch size |
@@ -145,70 +144,7 @@ results/<timestamp>/
 | `--aug_disparity_threshold` | 1.5 | normal/hate ratio above which a group gets disparity augmentation |
 | `--aug_methods` | synonym,delete,swap,punct,char,combo | Augmentation methods |
 
----
-
-## Running on the EPFL Cluster (RunAI)
-
-Replace `<username>` with your GASPAR username and `<uid>` with your UID (run `id` on the jumphost to find it).
-
-Connect via VPN (`vpn.epfl.ch`) then SSH:
-
-```bash
-ssh <username>@jumphost.rcp.epfl.ch
-```
-
-Pull the latest code:
-
-```bash
-cd ~/hate_speech_project
-git pull
-```
-
-### Preprocess job
-
-```bash
-runai submit job-preprocess \
-  --run-as-uid <uid> \
-  --image registry.rcp.epfl.ch/ee-559-guenzi/my-toolbox:v0.3 \
-  --existing-pvc claimname=course-ee-559-scratch-g17,path=/scratch \
-  --existing-pvc claimname=home,path=/home/<username> \
-  --existing-pvc claimname=course-ee-559-shared-ro,path=/shared-ro \
-  --existing-pvc claimname=course-ee-559-shared-rw,path=/shared-rw \
-  --command -- bash -c "cd /home/<username>/hate_speech_project/src && python3 preprocess.py"
-```
-
-### Training job
-
-```bash
-runai submit job-racism-vX \
-  --run-as-uid <uid> \
-  --image registry.rcp.epfl.ch/ee-559-guenzi/my-toolbox:v0.3 \
-  --gpu 1 \
-  --existing-pvc claimname=home,path=/home/<username> \
-  --command -- python3 /home/<username>/hate_speech_project/main.py \
-    --data_path /home/<username>/hate_speech_project/data/final_datasets/hatexplain.csv \
-    --output_dir /home/<username>/hate_speech_project/results \
-    --epochs 5 --patience 2
-```
-
-Replace `vX` with a unique number (v7, v8…).
-
-### Useful commands
-
-```bash
-runai list
-runai logs <job-name> -f
-runai delete job <job-name> -p course-ee-559-<username>
-```
-
-### Retrieve results locally (VPN required)
-
-```bash
-scp -r <username>@jumphost.rcp.epfl.ch:/home/<username>/hate_speech_project/results/ \
-    "/path/to/local/hate_speech_project/"
-```
-
----
+------------------------------------------------------------------------
 
 ## Authors
 
